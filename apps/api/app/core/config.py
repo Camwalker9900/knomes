@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     admin_email: str = "admin@example.com"
     app_env: str = "development"
     app_secret: str = "dev-secret-change-me"
+    # Comma-separated browser origins allowed to call the API (the web app).
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     hcad_download_url: str = ""  # set when licensing/URL confirmed
     houston_ckan_base_url: str = "https://data.houstontx.gov"
     houston_code_resource_id: str = ""
