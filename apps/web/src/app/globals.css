@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand */
+  --color-navy: #032042;
+  --color-flame: #ed5621;
+  --color-steel: #15537f;
+  --color-cream: #fdcda2;
+
+  /* Editorial surfaces */
+  --color-paper: #fbf9f6;
+  --color-ink: #25313d;
+
+  /* Type roles: serif display, system body, mono for dates and record ids */
+  --font-display: georgia, "Times New Roman", times, serif;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", roboto, "Helvetica Neue", arial,
+    sans-serif;
+  --font-mono:
+    ui-monospace, sfmono-regular, menlo, monaco, consolas, "Liberation Mono", "Courier New",
+    monospace;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

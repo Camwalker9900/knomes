@@ -1,0 +1,104 @@
+{
+  "events": [
+    {
+      "id": "0f65a100-0001-4000-8000-000000000001",
+      "event_type": "LISTING_CREATED",
+      "event_date": "2025-01-01T00:00:00+00:00",
+      "title": "Listed for sale",
+      "summary": "Property listed for sale.",
+      "verification_level": "PARTICIPANT_REPORTED",
+      "confidence": null,
+      "provenance": null
+    },
+    {
+      "id": "0f65a100-0002-4000-8000-000000000002",
+      "event_type": "LISTING_UNDER_CONTRACT",
+      "event_date": "2025-01-05T00:00:00+00:00",
+      "title": "Went under contract",
+      "summary": "Listing moved to under contract.",
+      "verification_level": "PARTICIPANT_REPORTED",
+      "confidence": null,
+      "provenance": null
+    },
+    {
+      "id": "0f65a100-0003-4000-8000-000000000003",
+      "event_type": "INSPECTION_PERFORMED",
+      "event_date": "2025-01-08T00:00:00+00:00",
+      "title": "General home inspection performed",
+      "summary": "Licensed inspector performed a general home inspection.",
+      "verification_level": "LICENSED_PROFESSIONAL",
+      "confidence": null,
+      "provenance": null
+    },
+    {
+      "id": "0f65a100-0004-4000-8000-000000000004",
+      "event_type": "CONDITION_FINDING",
+      "event_date": "2025-01-09T00:00:00+00:00",
+      "title": "HVAC system at end of serviceable life",
+      "summary": "Inspection identified an HVAC system at the end of its serviceable life.",
+      "verification_level": "LICENSED_PROFESSIONAL",
+      "confidence": null,
+      "provenance": null
+    },
+    {
+      "id": "0f65a100-0005-4000-8000-000000000005",
+      "event_type": "REPAIR_RECOMMENDED",
+      "event_date": "2025-01-09T00:00:00+00:00",
+      "title": "HVAC replacement recommended",
+      "summary": "Inspector recommended full HVAC replacement.",
+      "verification_level": "LICENSED_PROFESSIONAL",
+      "confidence": null,
+      "provenance": null
+    },
+    {
+      "id": "0f65a100-0006-4000-8000-000000000006",
+      "event_type": "TRANSACTION_TERMINATED",
+      "event_date": "2025-01-12T00:00:00+00:00",
+      "title": "Contract terminated",
+      "summary": "Termination notice cites property condition.",
+      "verification_level": "TRANSACTION_DOCUMENT",
+      "confidence": null,
+      "provenance": null
+    },
+    {
+      "id": "0f65a100-0007-4000-8000-000000000007",
+      "event_type": "PERMIT_ISSUED",
+      "event_date": "2025-02-01T00:00:00+00:00",
+      "title": "Mechanical permit issued",
+      "summary": "Mechanical permit issued for HVAC replacement.",
+      "verification_level": "GOVERNMENT_RECORD",
+      "confidence": null,
+      "provenance": { "source_name": "synthetic_fixture", "record_type": "permit" }
+    },
+    {
+      "id": "0f65a100-0008-4000-8000-000000000008",
+      "event_type": "REPAIR_REPORTED",
+      "event_date": "2025-02-05T00:00:00+00:00",
+      "title": "HVAC replacement reported",
+      "summary": "Seller reported the HVAC system was replaced.",
+      "verification_level": "PARTICIPANT_REPORTED",
+      "confidence": null,
+      "provenance": null
+    },
+    {
+      "id": "0f65a100-0009-4000-8000-000000000009",
+      "event_type": "PERMIT_FINALIZED",
+      "event_date": "2025-02-08T00:00:00+00:00",
+      "title": "Mechanical permit finalized",
+      "summary": "Mechanical permit passed final inspection.",
+      "verification_level": "GOVERNMENT_RECORD",
+      "confidence": null,
+      "provenance": { "source_name": "synthetic_fixture", "record_type": "permit" }
+    },
+    {
+      "id": "0f65a100-0010-4000-8000-000000000010",
+      "event_type": "FINDING_RESOLVED",
+      "event_date": "2025-02-08T00:00:00+00:00",
+      "title": "HVAC finding resolved",
+      "summary": "Finding resolved: permit finalization supports the reported replacement.",
+      "verification_level": "DOCUMENT_SUPPORTED",
+      "confidence": null,
+      "provenance": null
+    }
+  ]
+}
