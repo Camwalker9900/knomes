@@ -13,8 +13,9 @@ from logging.config import fileConfig
 from pathlib import Path
 from typing import Any
 
-from alembic import context
 from sqlalchemy import create_engine, pool
+
+from alembic import context
 
 # Make the api package importable regardless of the current working directory.
 API_ROOT = Path(__file__).resolve().parents[1]

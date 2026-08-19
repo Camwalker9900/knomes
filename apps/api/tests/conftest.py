@@ -16,12 +16,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 import sqlalchemy as sa
-from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
+
+from alembic import command
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient

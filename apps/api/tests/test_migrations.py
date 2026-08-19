@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from alembic import command
 from alembic.config import Config
+
+from alembic import command
 
 EXPECTED_TABLES = frozenset(
     {
