@@ -18,7 +18,11 @@ import type {
   TransactionsResponse,
 } from "@/lib/types";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Server-side (SSR in docker) reaches the api service directly; the browser uses the public URL.
+const API_BASE_URL =
+  (typeof window === "undefined" && process.env.API_URL_INTERNAL) ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8000";
 
 export class ApiError extends Error {
   readonly status: number;

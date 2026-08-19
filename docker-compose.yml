@@ -58,6 +58,7 @@ services:
     depends_on: *api-depends-on
     volumes:
       - ./apps/api:/srv/api
+      - /srv/api/.venv
 
   worker:
     build: ./apps/api
@@ -67,12 +68,14 @@ services:
     depends_on: *api-depends-on
     volumes:
       - ./apps/api:/srv/api
+      - /srv/api/.venv
 
   web:
     build: ./apps/web
     command: npm run dev
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      API_URL_INTERNAL: http://api:8000
     ports:
       - "3000:3000"
     depends_on:
