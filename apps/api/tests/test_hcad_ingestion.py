@@ -235,7 +235,7 @@ def test_import_bootstraps_properties_with_provenance(
     assert run.records_unmatched == 0
     assert run.source_records_created == TOTAL_ROWS
     assert run.events_created == 0
-    assert run.parser_version == "1.0.0"
+    assert run.parser_version == "1.1.0"
 
     # --- snapshot archived + checksummed ---
     expected_checksum = hashlib.sha256(file.read_bytes()).hexdigest()

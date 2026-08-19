@@ -61,6 +61,7 @@ from app.ingestion.hcad.normalize import (
     parse_property_fields,
 )
 from app.ingestion.hcad.parse import (
+    OPTIONAL_COLUMNS,
     REQUIRED_COLUMNS,
     ParseStats,
     open_real_acct,
@@ -77,11 +78,15 @@ DEFAULT_BATCH_SIZE = 1000
 # table, not part of the migrated canonical schema.
 staging_metadata = MetaData()
 
+# All columns staged: required plus whichever optional ones the layout carries
+# (absent columns COPY as empty strings and parse as None downstream).
+STAGING_COLUMNS: tuple[str, ...] = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
+
 hcad_staging = Table(
     "hcad_staging",
     staging_metadata,
     Column("seq", BigInteger, Identity(always=True), primary_key=True),
-    *(Column(name, Text) for name in REQUIRED_COLUMNS),
+    *(Column(name, Text) for name in STAGING_COLUMNS),
     prefixes=["UNLOGGED"],
 )
 
@@ -113,8 +118,9 @@ class UpsertStats:
 
 
 def ensure_staging(conn: Connection) -> None:
-    """Create the UNLOGGED hcad_staging table if it does not exist yet."""
-    hcad_staging.create(conn, checkfirst=True)
+    """(Re)create the UNLOGGED hcad_staging table with the current layout."""
+    hcad_staging.drop(conn, checkfirst=True)
+    hcad_staging.create(conn)
 
 
 def load_staging(conn: Connection, file: Path) -> ParseStats:
@@ -129,11 +135,11 @@ def load_staging(conn: Connection, file: Path) -> ParseStats:
     stats = ParseStats()
     driver = conn.connection.driver_connection
     assert isinstance(driver, psycopg.Connection), "hcad staging COPY requires psycopg"
-    columns_sql = ", ".join(f'"{name}"' for name in REQUIRED_COLUMNS)
+    columns_sql = ", ".join(f'"{name}"' for name in STAGING_COLUMNS)
     copy_sql = f"COPY hcad_staging ({columns_sql}) FROM STDIN"
     with open_real_acct(file) as fh, driver.cursor() as cur, cur.copy(copy_sql) as copy:
         for row in parse_rows(fh, stats=stats):
-            copy.write_row(tuple(row.get(name, "") for name in REQUIRED_COLUMNS))
+            copy.write_row(tuple(row.get(name, "") for name in STAGING_COLUMNS))
     logger.info(
         "hcad staging loaded",
         extra={
@@ -323,7 +329,7 @@ def upsert_from_staging(
     keyed by acct) and across batches (later batch upserts overwrite earlier).
     """
     stmt = (
-        select(*(hcad_staging.c[name] for name in REQUIRED_COLUMNS))
+        select(*(hcad_staging.c[name] for name in STAGING_COLUMNS))
         .order_by(hcad_staging.c.seq)
         .execution_options(yield_per=batch_size)
     )

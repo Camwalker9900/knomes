@@ -38,6 +38,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, TextIO
 
+# Columns required in every supported real_acct layout. Building area is
+# intentionally NOT required here: the 2026 download names it ``bld_ar`` while
+# older extracts (and our synthetic fixture) use ``im_sq_ft`` — normalize.py
+# accepts either. Optional columns seen in the real layout (str_pfx,
+# str_num_sfx, str_sfx_dir, tot_mkt_val, ...) are carried through raw_payload.
 REQUIRED_COLUMNS: Final[tuple[str, ...]] = (
     "acct",
     "str_num",
@@ -49,8 +54,18 @@ REQUIRED_COLUMNS: Final[tuple[str, ...]] = (
     "site_addr_3",
     "state_class",
     "yr_impr",
-    "im_sq_ft",
     "land_ar",
+)
+
+# Optional columns consumed when the layout provides them. ``bld_ar`` is the
+# 2026 name for building area (older layouts: ``im_sq_ft``); the str_* extras
+# are directional/ordinal address parts present in the full HCAD export.
+OPTIONAL_COLUMNS: Final[tuple[str, ...]] = (
+    "im_sq_ft",
+    "bld_ar",
+    "str_pfx",
+    "str_num_sfx",
+    "str_sfx_dir",
     "tot_mkt_val",
 )
 

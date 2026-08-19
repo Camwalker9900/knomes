@@ -27,7 +27,7 @@ from app.lib.address import address_hash, normalize_address
 
 HCAD_SOURCE_NAME: Final[str] = "hcad"
 HCAD_RECORD_TYPE: Final[str] = "real_acct"
-HCAD_PARSER_VERSION: Final[str] = "1.0.0"
+HCAD_PARSER_VERSION: Final[str] = "1.1.0"
 
 DEFAULT_CITY: Final[str] = "HOUSTON"
 DEFAULT_STATE: Final[str] = "TX"
@@ -99,7 +99,13 @@ def parse_property_fields(raw: Mapping[str, object]) -> ParsedProperty:
 
     street_parts = [
         part
-        for part in (_text(raw, "str_num"), _text(raw, "str"), _text(raw, "str_sfx"))
+        for part in (
+            _text(raw, "str_num"),
+            _text(raw, "str_pfx"),
+            _text(raw, "str"),
+            _text(raw, "str_sfx"),
+            _text(raw, "str_sfx_dir"),
+        )
         if part
     ]
     if not street_parts:
@@ -120,7 +126,9 @@ def parse_property_fields(raw: Mapping[str, object]) -> ParsedProperty:
         normalized_address=normalized,
         address_hash=address_hash(normalized),
         year_built=_int_or_none(raw, "yr_impr", acct),
-        building_sqft=_int_or_none(raw, "im_sq_ft", acct),
+        building_sqft=_int_or_none(
+            raw, "im_sq_ft" if _text(raw, "im_sq_ft") else "bld_ar", acct
+        ),
         lot_sqft=_land_sqft_or_none(raw, "land_ar", acct),
         property_type=_text(raw, "state_class") or None,
     )
