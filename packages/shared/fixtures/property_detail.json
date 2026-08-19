@@ -1,0 +1,32 @@
+{
+  "id": "00000000-0000-4000-8000-000000000200",
+  "address_line1": "200 TEST ST",
+  "unit": null,
+  "city": "HOUSTON",
+  "state": "TX",
+  "postal_code": "77000",
+  "hcad_account_id": "TEST000200",
+  "year_built": 1994,
+  "building_sqft": 2150,
+  "lot_sqft": 7405.0,
+  "property_type": "SINGLE_FAMILY",
+  "latitude": 29.7604,
+  "longitude": -95.3698,
+  "condition_summary": {
+    "open_findings": 1,
+    "resolved_findings": 1,
+    "disputed_findings": 0,
+    "verified_inspections": 1,
+    "prior_transactions": 2
+  },
+  "freshness": [
+    {
+      "source": "synthetic_fixture",
+      "last_refreshed": "2026-01-15T08:30:00Z"
+    },
+    {
+      "source": "houston_code_enforcement",
+      "last_refreshed": null
+    }
+  ]
+}

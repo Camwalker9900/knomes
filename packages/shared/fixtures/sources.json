@@ -1,0 +1,14 @@
+{
+  "sources": [
+    {
+      "source": "synthetic_fixture",
+      "record_count": 12,
+      "last_refreshed": "2026-01-15T08:30:00Z"
+    },
+    {
+      "source": "houston_code_enforcement",
+      "record_count": 0,
+      "last_refreshed": null
+    }
+  ]
+}

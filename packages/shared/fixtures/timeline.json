@@ -1,0 +1,79 @@
+{
+  "events": [
+    {
+      "id": "00000000-0000-4000-8000-000000000201",
+      "event_type": "PROPERTY_CREATED",
+      "event_date": "1994-06-01T00:00:00Z",
+      "title": "Property record created",
+      "summary": null,
+      "verification_level": "GOVERNMENT_RECORD",
+      "confidence": null,
+      "provenance": {
+        "source_name": "synthetic_fixture",
+        "record_type": "hcad_parcel"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000202",
+      "event_type": "LISTING_ACTIVE",
+      "event_date": "2025-03-10T09:00:00Z",
+      "title": "Listed for sale",
+      "summary": null,
+      "verification_level": "TRANSACTION_DOCUMENT",
+      "confidence": null,
+      "provenance": {
+        "source_name": "synthetic_fixture",
+        "record_type": "listing"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000203",
+      "event_type": "INSPECTION_PERFORMED",
+      "event_date": "2025-04-02T14:30:00Z",
+      "title": "General home inspection",
+      "summary": "Licensed inspection covering roof, HVAC, plumbing, and electrical.",
+      "verification_level": "LICENSED_PROFESSIONAL",
+      "confidence": null,
+      "provenance": {
+        "source_name": "synthetic_fixture",
+        "record_type": "inspection"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000204",
+      "event_type": "CONDITION_FINDING",
+      "event_date": "2025-04-02T14:30:00Z",
+      "title": "HVAC condenser at end of service life",
+      "summary": "Inspector reported the condenser unit is original and near failure.",
+      "verification_level": "LICENSED_PROFESSIONAL",
+      "confidence": null,
+      "provenance": {
+        "source_name": "synthetic_fixture",
+        "record_type": "inspection"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000205",
+      "event_type": "TRANSACTION_TERMINATED",
+      "event_date": "2025-04-20T00:00:00Z",
+      "title": "Contract terminated",
+      "summary": "A previous contract appears not to have closed. Reason not verified.",
+      "verification_level": "SYSTEM_INFERRED",
+      "confidence": 0.7,
+      "provenance": null
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000206",
+      "event_type": "PERMIT_FINALIZED",
+      "event_date": "2025-06-18T16:00:00Z",
+      "title": "Mechanical permit finalized",
+      "summary": "HVAC replacement permit passed final inspection.",
+      "verification_level": "GOVERNMENT_RECORD",
+      "confidence": null,
+      "provenance": {
+        "source_name": "synthetic_fixture",
+        "record_type": "permit"
+      }
+    }
+  ]
+}

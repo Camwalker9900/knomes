@@ -1,0 +1,24 @@
+{
+  "transactions": [
+    {
+      "id": "00000000-0000-4000-8000-000000000601",
+      "started_at": "2025-03-10T09:00:00Z",
+      "under_contract_at": "2025-03-28T00:00:00Z",
+      "terminated_at": "2025-04-20T00:00:00Z",
+      "closed_at": null,
+      "outcome": "TERMINATED",
+      "termination_reason": "UNKNOWN",
+      "reason_verification_level": "SYSTEM_INFERRED"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000602",
+      "started_at": "2025-05-05T09:00:00Z",
+      "under_contract_at": "2025-05-30T00:00:00Z",
+      "terminated_at": null,
+      "closed_at": "2025-07-01T00:00:00Z",
+      "outcome": "CLOSED",
+      "termination_reason": "UNKNOWN",
+      "reason_verification_level": "UNVERIFIED"
+    }
+  ]
+}

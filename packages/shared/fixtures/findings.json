@@ -1,0 +1,37 @@
+{
+  "findings": [
+    {
+      "id": "00000000-0000-4000-8000-000000000401",
+      "category": "HVAC",
+      "subcategory": "CONDENSER",
+      "title": "HVAC condenser at end of service life",
+      "description": "Condenser unit is original to the house and near failure.",
+      "severity": "MAJOR",
+      "status": "RESOLVED",
+      "first_observed_at": "2025-04-02T14:30:00Z",
+      "latest_observed_at": "2025-04-02T14:30:00Z",
+      "resolutions": [
+        {
+          "id": "00000000-0000-4000-8000-000000000501",
+          "resolution_type": "REPLACEMENT",
+          "description": "Condenser replaced under a finalized mechanical permit.",
+          "verification_level": "DOCUMENT_SUPPORTED",
+          "resolved_at": "2025-06-18T16:00:00Z",
+          "event_id": "00000000-0000-4000-8000-000000000206"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000402",
+      "category": "ROOF",
+      "subcategory": null,
+      "title": "Composition shingles showing wear",
+      "description": null,
+      "severity": "MODERATE",
+      "status": "OPEN",
+      "first_observed_at": "2025-04-02T14:30:00Z",
+      "latest_observed_at": null,
+      "resolutions": []
+    }
+  ]
+}

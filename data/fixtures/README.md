@@ -4,7 +4,9 @@ Only `data/fixtures/` is committed. `data/raw/` and `data/staging/` are
 gitignored working directories that ingestion runs create and fill locally:
 
 - `data/raw/` — immutable source snapshots exactly as downloaded (checksummed;
-  mirrored to object storage so every sync run is reproducible).
+  mirrored to object storage so every sync run is reproducible). Real HCAD
+  exports here contain owner names and mailing addresses — never commit,
+  publish, or copy anything from this directory into fixtures.
 - `data/staging/` — intermediate parsed/normalized artifacts between RAW and
   the canonical tables. Safe to delete at any time.
 

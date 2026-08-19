@@ -1,0 +1,12 @@
+# Commit LF line endings for all text files.
+* text=auto
+
+# Binary assets — never diff or EOL-convert.
+*.png binary
+
+# Fixture files are asserted byte-for-byte by tests (contract parity suites)
+# and parsed by exact layout (tab-delimited HCAD sample). Force LF on checkout
+# so Windows clones with core.autocrlf don't break the suites.
+data/fixtures/** text eol=lf
+packages/shared/fixtures/** text eol=lf
+apps/web/src/test/fixtures/** text eol=lf

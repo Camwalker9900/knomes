@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -94,7 +97,7 @@ jobs:
         run: npm run build
 
   playwright-smoke:
-    name: playwright smoke (hermetic build + start + curl)
+    name: playwright smoke (hermetic build + start + browser tests)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -117,17 +120,8 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
 
-      - name: Start server and smoke-check homepage
-        run: |
-          npm run start &
-          SERVER_PID=$!
-          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
-          for i in $(seq 1 30); do
-            if curl -fsS http://localhost:3000/ -o /dev/null; then
-              echo "Homepage responded with HTTP 200"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Homepage did not respond within 60s" >&2
-          exit 1
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright smoke tests
+        run: npx playwright test

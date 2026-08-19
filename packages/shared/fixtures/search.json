@@ -1,0 +1,34 @@
+{
+  "results": [
+    {
+      "id": "00000000-0000-4000-8000-000000000100",
+      "address_line1": "100 TEST ST",
+      "unit": null,
+      "city": "HOUSTON",
+      "state": "TX",
+      "postal_code": "77000",
+      "hcad_account_id": "TEST000100",
+      "match_type": "EXACT_ADDRESS"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000200",
+      "address_line1": "200 TEST ST",
+      "unit": null,
+      "city": "HOUSTON",
+      "state": "TX",
+      "postal_code": "77000",
+      "hcad_account_id": "TEST000200",
+      "match_type": "HCAD_ID"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000300",
+      "address_line1": "300 TEST ST",
+      "unit": "APT 2",
+      "city": "HOUSTON",
+      "state": "TX",
+      "postal_code": "77000",
+      "hcad_account_id": null,
+      "match_type": "FUZZY_ADDRESS"
+    }
+  ]
+}

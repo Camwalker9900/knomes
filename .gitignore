@@ -15,9 +15,10 @@ node_modules/
 .next/
 coverage/
 
-# Env & secrets
+# Env & secrets (every variant; only the documented example is tracked)
 .env
-.env.local
+.env.*
+!.env.example
 
 # Data working dirs (raw/staging snapshots are reproducible, never committed)
 data/raw/
