@@ -28,6 +28,10 @@ FUZZY_SIMILARITY_THRESHOLD = 0.3
 
 def search_properties(session: Session, q: str) -> list[tuple[Property, str]]:
     """Return up to 10 ``(property, match_type)`` pairs for a raw query string."""
+    # Postgres rejects NUL bytes inside text parameters; strip them so a
+    # hostile query degrades to a normal miss instead of a 500.
+    q = q.replace("\x00", "")
+
     results: list[tuple[Property, str]] = []
     seen: set[uuid.UUID] = set()
 
@@ -71,10 +75,23 @@ def search_properties(session: Session, q: str) -> list[tuple[Property, str]]:
 
     if normalized_q and len(results) < MAX_RESULTS:
         similarity = func.similarity(Property.normalized_address, normalized_q)
+        # Pin the % operator's GUC to our threshold so it can prune via the
+        # GIN trigram index; the explicit similarity filter stays as the
+        # correctness bound either way.
+        session.execute(
+            select(
+                func.set_config(
+                    "pg_trgm.similarity_threshold", str(FUZZY_SIMILARITY_THRESHOLD), True
+                )
+            )
+        )
         # Fetch enough rows that earlier-rung duplicates cannot starve the cap.
         fuzzy_stmt = (
             select(Property)
-            .where(similarity > FUZZY_SIMILARITY_THRESHOLD)
+            .where(
+                Property.normalized_address.op("%")(normalized_q),
+                similarity > FUZZY_SIMILARITY_THRESHOLD,
+            )
             .order_by(similarity.desc(), Property.normalized_address, Property.id)
             .limit(MAX_RESULTS + len(seen))
         )

@@ -145,3 +145,20 @@ class TestSearchEndpoint:
     def test_missing_query_param_is_422(self, client: TestClient) -> None:
         response = client.get("/api/v1/properties/search")
         assert response.status_code == 422
+
+
+def test_nul_byte_in_query_degrades_to_normal_miss(db: Session) -> None:
+    prop = Property(
+        address_line1="100 Test Street",
+        city="Houston",
+        state="TX",
+        postal_code="77000",
+        normalized_address=normalize_address("100 Test Street"),
+        address_hash=address_hash(normalize_address("100 Test Street")),
+    )
+    db.add(prop)
+    db.flush()
+    # NUL bytes are stripped rather than bubbling up as a database error.
+    results = search_properties(db, "100 Test\x00 Street")
+    assert [p.id for p, _ in results] == [prop.id]
+    assert search_properties(db, "\x00") == []

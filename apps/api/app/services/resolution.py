@@ -110,7 +110,11 @@ def find_candidate_resolutions(session: Session, finding: Finding) -> list[Resol
     for event in events:
         if event.id in existing_event_ids:
             continue
-        matched = keywords & _tokenize(event.title, event.summary)
+        # Match against the title only: permit titles are structured
+        # ("Mechanical permit issued"), while summaries are free text where an
+        # incidental word ("...ducts near the roof line") would propose a
+        # permit against an unrelated finding category.
+        matched = keywords & _tokenize(event.title)
         if not matched:
             continue
 

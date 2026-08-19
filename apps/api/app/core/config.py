@@ -1,12 +1,19 @@
 """Application settings loaded from the environment (and optional .env file)."""
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Runtime configuration for the Knomes API."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Read the repo-root .env first (works no matter the CWD), then a local
+    # apps/api/.env override; real environment variables beat both.
+    model_config = SettingsConfigDict(
+        env_file=(str(Path(__file__).resolve().parents[3].parent / ".env"), ".env"),
+        extra="ignore",
+    )
 
     database_url: str = "postgresql+psycopg://knomes:knomes@localhost:5433/knomes"
     redis_url: str = "redis://localhost:6379/0"

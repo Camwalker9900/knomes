@@ -151,7 +151,12 @@ def condition_summary(session: Session, property_id: uuid.UUID) -> ConditionSumm
 
 
 def _sync_run_freshness(session: Session, source_names: list[str]) -> dict[str, datetime]:
-    """Latest finished sync-run timestamp per source, for sources that have runs."""
+    """Latest SUCCESSFUL sync-run timestamp per source.
+
+    FAILED runs also stamp finished_at, but they refreshed nothing — counting
+    them would keep "last refreshed" advancing through an outage while the
+    data goes stale.
+    """
     if not source_names:
         return {}
     rows = session.execute(
@@ -159,6 +164,7 @@ def _sync_run_freshness(session: Session, source_names: list[str]) -> dict[str, 
         .where(
             SourceSyncRun.source_name.in_(source_names),
             SourceSyncRun.finished_at.is_not(None),
+            SourceSyncRun.status == "SUCCEEDED",
         )
         .group_by(SourceSyncRun.source_name)
     ).all()

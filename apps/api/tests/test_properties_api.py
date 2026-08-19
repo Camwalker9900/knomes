@@ -440,3 +440,37 @@ class TestSourcesEndpoint:
         response = client.get(f"/api/v1/properties/{prop.id}/sources")
         assert response.status_code == 200
         assert response.json() == {"sources": []}
+
+
+def test_failed_sync_run_does_not_advance_freshness(client: TestClient, db: Session) -> None:
+    """A FAILED run stamps finished_at but refreshed nothing — last_refreshed
+    must stay at the last SUCCESSFUL refresh (spec section 42)."""
+    prop = make_property(db, "77 Freshness Ln")
+    make_source_record(
+        db, prop, source_name="houston_code", source_record_id="F1",
+        retrieved_at=datetime(2024, 3, 5, tzinfo=UTC),
+    )
+    db.add(
+        SourceSyncRun(
+            source_name="houston_code",
+            status="SUCCEEDED",
+            finished_at=datetime(2024, 4, 1, tzinfo=UTC),
+        )
+    )
+    # CKAN outage: nightly runs fail for weeks, each with a fresh finished_at.
+    db.add(
+        SourceSyncRun(
+            source_name="houston_code",
+            status="FAILED",
+            finished_at=datetime(2024, 6, 15, tzinfo=UTC),
+            error_message="ConnectError: CKAN unreachable",
+        )
+    )
+    db.flush()
+
+    detail = client.get(f"/api/v1/properties/{prop.id}").json()
+    assert detail["freshness"] == [
+        {"source": "houston_code", "last_refreshed": "2024-04-01T00:00:00+00:00"}
+    ]
+    sources = client.get(f"/api/v1/properties/{prop.id}/sources").json()["sources"]
+    assert sources[0]["last_refreshed"] == "2024-04-01T00:00:00+00:00"

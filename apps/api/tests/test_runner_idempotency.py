@@ -357,3 +357,123 @@ def test_run_sync_fetches_snapshot_when_not_provided(
     assert run.snapshot_path == "/dev/null"
     assert run.snapshot_checksum == "fetched-checksum"
     assert run.finished_at is not None
+
+
+# ---------------------------------------------------------------------------
+# regressions: refreshed payloads, invalid candidates, failed-run metrics
+# ---------------------------------------------------------------------------
+
+
+def test_refreshed_payload_does_not_duplicate_events(
+    db: Session, run_session_factory: Callable[[], Session]
+) -> None:
+    """A mutated upstream record versions source_records but never re-emits
+    the same logical public event (dedup is on logical record identity)."""
+    _make_property(db, address_line1="4501 RUNNER OAK DR", hcad_account_id="TESTRUN100")
+    opened = {
+        "event_type": "CODE_VIOLATION_OPENED",
+        "event_date": "2026-01-05T00:00:00+00:00",
+        "title": "Code violation opened",
+    }
+    rec_v1 = {
+        "id": "rec-refresh",
+        "hcad": "TESTRUN100",
+        "address": "4501 RUNNER OAK DR",
+        "status": "OPEN",
+        "events": [opened],
+    }
+    run1 = run_sync(InMemoryAdapter([rec_v1]), run_session_factory, snapshot=_snapshot())
+    assert run1.events_created == 1
+
+    # Upstream record mutates in place (CKAN-style): same logical id, new
+    # content hash, one genuinely new event candidate.
+    rec_v2 = {
+        **rec_v1,
+        "status": "IN PROGRESS",
+        "events": [
+            opened,
+            {
+                "event_type": "CODE_VIOLATION_ACTION",
+                "event_date": "2026-03-01T00:00:00+00:00",
+                "title": "Code enforcement action: NOTICE ISSUED",
+            },
+        ],
+    }
+    run2 = run_sync(InMemoryAdapter([rec_v2]), run_session_factory, snapshot=_snapshot())
+
+    versions = _count(
+        db,
+        select(func.count())
+        .select_from(SourceRecord)
+        .where(SourceRecord.source_record_id == "rec-refresh"),
+    )
+    assert versions == 2  # raw retention per spec section 7
+
+    assert run2.events_created == 1  # only the new ACTION event
+    opened_events = _count(
+        db,
+        select(func.count())
+        .select_from(LedgerEvent)
+        .where(LedgerEvent.event_type == "CODE_VIOLATION_OPENED"),
+    )
+    assert opened_events == 1  # no duplicate on the public timeline
+
+
+def test_invalid_event_candidate_enum_counts_rejected(
+    db: Session, run_session_factory: Callable[[], Session]
+) -> None:
+    _make_property(db, address_line1="4501 RUNNER OAK DR", hcad_account_id="TESTRUN100")
+    rec = {
+        "id": "rec-bad-enum",
+        "hcad": "TESTRUN100",
+        "address": "4501 RUNNER OAK DR",
+        "events": [
+            {
+                "event_type": "NOT_A_REAL_EVENT_TYPE",
+                "event_date": "2026-01-05T00:00:00+00:00",
+                "title": "Bogus",
+            }
+        ],
+    }
+    run = run_sync(InMemoryAdapter([rec]), run_session_factory, snapshot=_snapshot())
+    assert run.status == "SUCCEEDED"
+    assert run.records_rejected == 1
+    assert run.events_created == 0
+
+
+class _ExplodingAdapter(InMemoryAdapter):
+    """Yields one good record, then dies mid-parse (e.g. truncated snapshot)."""
+
+    def parse(self, snapshot: RawSnapshot) -> Iterator[dict[str, Any]]:
+        yield from super().parse(snapshot)
+        raise RuntimeError("snapshot truncated mid-stream")
+
+
+def test_failed_run_reports_zero_created_rows(
+    db: Session, run_session_factory: Callable[[], Session]
+) -> None:
+    _make_property(db, address_line1="4501 RUNNER OAK DR", hcad_account_id="TESTRUN100")
+    rec = {
+        "id": "rec-pre-crash",
+        "hcad": "TESTRUN100",
+        "address": "4501 RUNNER OAK DR",
+        "events": [
+            {
+                "event_type": "PERMIT_ISSUED",
+                "event_date": "2026-04-01T00:00:00+00:00",
+                "title": "Mechanical permit issued",
+            }
+        ],
+    }
+    run = run_sync(_ExplodingAdapter([rec]), run_session_factory, snapshot=_snapshot())
+    assert run.status == "FAILED"
+    # The write transaction rolled back, so created counters must not claim rows.
+    assert run.source_records_created == 0
+    assert run.events_created == 0
+    remaining = _count(
+        db,
+        select(func.count())
+        .select_from(SourceRecord)
+        .where(SourceRecord.source_record_id == "rec-pre-crash"),
+    )
+    assert remaining == 0

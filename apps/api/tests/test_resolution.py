@@ -298,3 +298,23 @@ def test_finding_without_first_observed_at_yields_no_candidates(db: Session) -> 
 
     assert find_candidate_resolutions(db, finding) == []
     assert _candidate_count(db, finding) == 0
+
+
+def test_summary_free_text_cannot_cross_propose_categories(db: Session) -> None:
+    """An HVAC permit whose free-text summary mentions the roof must not be
+    proposed against a ROOF finding — keyword matching is title-only."""
+    prop = _make_property(db)
+    finding = _make_finding(
+        db, prop, category="ROOF", first_observed_at=datetime(2026, 1, 9, tzinfo=UTC)
+    )
+    _make_permit_event(
+        db,
+        prop,
+        event_type="PERMIT_FINALIZED",
+        title="Mechanical permit finalized",
+        event_date=datetime(2026, 2, 8, tzinfo=UTC),
+        summary="Replaced HVAC ducts routed near the roof line",
+    )
+    candidates = find_candidate_resolutions(db, finding)
+    assert candidates == []
+    assert _candidate_count(db, finding) == 0

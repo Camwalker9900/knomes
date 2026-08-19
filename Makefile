@@ -24,11 +24,20 @@ format:
 	cd apps/api && uv run ruff format .
 	cd apps/web && npx prettier --write .
 
+# migrate/seed run inside the api container when the stack is up, else locally via uv.
 migrate:
-	cd apps/api && uv run alembic upgrade head
+	@if docker compose ps --status running api 2>/dev/null | grep -q api; then \
+		docker compose exec api alembic upgrade head; \
+	else \
+		cd apps/api && uv run alembic upgrade head; \
+	fi
 
 seed:
-	cd apps/api && uv run python -m app.seed
+	@if docker compose ps --status running api 2>/dev/null | grep -q api; then \
+		docker compose exec api python -m app.seed; \
+	else \
+		cd apps/api && uv run python -m app.seed; \
+	fi
 
 import-hcad:
 	cd apps/api && uv run python -m app.ingestion.hcad.sync --file ../../data/fixtures/hcad_sample/real_acct.txt
