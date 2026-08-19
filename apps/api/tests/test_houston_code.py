@@ -1,13 +1,21 @@
 """Houston code-enforcement adapter tests: normalize mapping, CKAN fetch, end-to-end sync.
 
 The fixture (data/fixtures/houston_code_sample/records.json) is shaped exactly
-like a CKAN datastore_search response and contains:
+like a CKAN ``datastore_search`` response for resource
+1446a3ec-2633-4cf1-b15d-6dae9a07c4ed ("All Code Enforcement Violations in FORMS
+Since 2014") — real field names, synthetic values — and contains:
 
-- two records normalizing to "1234 WESTHEIMER RD" (one OPEN, one CLOSED with a
-  date_closed -> resolution event),
-- one record whose address matches nothing (unmatched queue),
-- one record with a malformed date_opened (rejected),
-- eleven filler records at addresses that match nothing.
+- two violations carrying HCAD account 0450230000012 at 1234 WESTHEIMER RD
+  (matching ladder's HCAD_ID rung at confidence 1.0),
+- one violation with a blank HCAD whose address normalizes to the same
+  property (falls through to the EXACT_ADDRESS rung),
+- one blank-HCAD record whose address matches nothing (unmatched queue),
+- one record with a malformed RecordCreateDate (rejected),
+- ten filler records with fake HCAD accounts and addresses matching nothing.
+
+The resource has no closure-date field, so a CLOSED Project_Status must never
+manufacture a CODE_VIOLATION_RESOLVED event, and Comment311upd (free text that
+may contain names) must never surface in a public title or summary.
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -25,10 +34,14 @@ import pytest
 from sqlalchemy import Connection, func, select
 from sqlalchemy.orm import Session
 
+import app.ingestion.houston_code.sync as sync_mod
 from app.core.config import settings
 from app.enums import EventType, MatchMethod, MatchReviewStatus, VerificationLevel, Visibility
 from app.ingestion.houston_code.adapter import HoustonCodeAdapter
-from app.ingestion.houston_code.normalize import normalize_houston_code_record
+from app.ingestion.houston_code.normalize import (
+    normalize_houston_code_record,
+    parse_ckan_datetime,
+)
 from app.ingestion.houston_code.sync import build_snapshot_from_file
 from app.ingestion.runner import run_sync
 from app.lib.address import address_hash, normalize_address
@@ -43,44 +56,53 @@ FIXTURE_PATH = (
     / "records.json"
 )
 
-CLOSED_PROJECT = "COD-2024-018233"  # matched, CLOSED with date_closed
-OPEN_PROJECT = "COD-2025-004411"  # matched, OPEN with a distinct last_action_date
-UNMATCHED_PROJECT = "COD-2025-007702"  # address matches nothing
-MALFORMED_PROJECT = "COD-2025-009915"  # malformed date_opened -> rejected
+HCAD_ACCOUNT = "0450230000012"
+COMMENT_SENTINEL = "EXAMPLESON"  # fake surname planted in Comment311upd fields
 
-# (event_type, event_date, title, project_number) in strict chronological order.
+CLOSED_VIOLATION = "910001"  # HCAD rung; Project_Status CLOSED, no closure date
+OPEN_VIOLATION = "910002"  # HCAD rung; Project_Status OPEN
+ADDRESS_VIOLATION = "910003"  # blank HCAD -> EXACT_ADDRESS rung
+UNMATCHED_VIOLATION = "910004"  # blank HCAD, address matches nothing
+MALFORMED_VIOLATION = "910005"  # malformed RecordCreateDate -> rejected
+NO_CATEGORY_VIOLATION = "910006"  # null Violation_Category/ShortDescription
+COMPOSITE_ID_RECORD = 8  # _id of the record with null ViolationSubId
+
+# (event_type, event_date, title, ViolationSubId) in strict chronological order.
 EXPECTED_TIMELINE = [
     (
         EventType.CODE_VIOLATION_OPENED,
         datetime(2024, 11, 5, tzinfo=UTC),
-        "Code violation opened: DANGEROUS BUILDING",
-        CLOSED_PROJECT,
-    ),
-    (
-        EventType.CODE_VIOLATION_RESOLVED,
-        datetime(2025, 1, 20, tzinfo=UTC),
-        "Code violation resolved",
-        CLOSED_PROJECT,
+        "Code violation opened: Dangerous Building",
+        CLOSED_VIOLATION,
     ),
     (
         EventType.CODE_VIOLATION_OPENED,
         datetime(2025, 3, 2, tzinfo=UTC),
-        "Code violation opened: NUISANCE - JUNK MOTOR VEHICLE",
-        OPEN_PROJECT,
+        "Code violation opened: Junked Motor Vehicle",
+        OPEN_VIOLATION,
     ),
     (
-        EventType.CODE_VIOLATION_ACTION,
-        datetime(2025, 3, 15, tzinfo=UTC),
-        "Code enforcement action: NOTICE OF VIOLATION ISSUED",
-        OPEN_PROJECT,
+        EventType.CODE_VIOLATION_OPENED,
+        datetime(2025, 5, 10, tzinfo=UTC),
+        "Code violation opened: Nuisance - High Weeds",
+        ADDRESS_VIOLATION,
     ),
 ]
 
 
-def _fixture_records() -> dict[str, dict[str, Any]]:
+def _fixture_record_list() -> list[dict[str, Any]]:
     payload = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
     records: list[dict[str, Any]] = payload["result"]["records"]
-    return {record["project_number"]: record for record in records}
+    return records
+
+
+def _fixture_records() -> dict[str, dict[str, Any]]:
+    """Fixture records keyed by ViolationSubId (records that carry one)."""
+    return {
+        record["ViolationSubId"]: record
+        for record in _fixture_record_list()
+        if record.get("ViolationSubId")
+    }
 
 
 @pytest.fixture()
@@ -102,7 +124,7 @@ def run_session_factory(db: Session) -> Callable[[], Session]:
 def _make_property(db: Session) -> Property:
     normalized = normalize_address("1234 Westheimer Rd")
     prop = Property(
-        hcad_account_id="0660640130020",
+        hcad_account_id=HCAD_ACCOUNT,
         address_line1="1234 Westheimer Rd",
         city="Houston",
         state="TX",
@@ -120,72 +142,121 @@ def _make_property(db: Session) -> Property:
 # ---------------------------------------------------------------------------
 
 
-def test_normalize_maps_open_project_with_distinct_action_date() -> None:
-    rec = normalize_houston_code_record(_fixture_records()[OPEN_PROJECT])
+def test_normalize_maps_violation_fields() -> None:
+    rec = normalize_houston_code_record(_fixture_records()[OPEN_VIOLATION])
 
-    assert rec.record_type == "code_enforcement_project"
-    assert rec.source_record_id == OPEN_PROJECT
+    assert rec.record_type == "code_enforcement_violation"
+    assert rec.source_record_id == OPEN_VIOLATION
+    assert rec.hcad_account_id == HCAD_ACCOUNT
+    assert rec.raw_address == "1234 WESTHEIMER RD"
+    assert rec.normalized_address == "1234 WESTHEIMER RD"
+    # Zip and Project_Status stay visible in the payload for provenance.
+    assert rec.raw_payload["Zip"] == "77006"
+    assert rec.raw_payload["Project_Status"] == "OPEN"
+
+    assert len(rec.event_candidates) == 1
+    opened = rec.event_candidates[0]
+    assert opened.event_type == EventType.CODE_VIOLATION_OPENED
+    assert opened.event_date == datetime(2025, 3, 2, tzinfo=UTC)
+    assert opened.title == "Code violation opened: Junked Motor Vehicle"
+    assert opened.summary == "Junk Motor Vehicle"
+    assert opened.verification_level == VerificationLevel.GOVERNMENT_RECORD
+    assert opened.confidence == 1.0
+
+
+def test_normalize_blank_hcad_becomes_none_and_address_still_normalizes() -> None:
+    rec = normalize_houston_code_record(_fixture_records()[ADDRESS_VIOLATION])
+
+    assert rec.hcad_account_id is None  # blank string, not ""
     assert rec.raw_address == "1234 Westheimer Rd."
     assert rec.normalized_address == "1234 WESTHEIMER RD"
-    assert rec.hcad_account_id is None
-    assert rec.raw_payload["project_status"] == "OPEN"
-
-    assert [c.event_type for c in rec.event_candidates] == [
-        EventType.CODE_VIOLATION_OPENED,
-        EventType.CODE_VIOLATION_ACTION,
-    ]
-    opened, action = rec.event_candidates
-    assert opened.event_date == datetime(2025, 3, 2, tzinfo=UTC)
-    assert opened.title == "Code violation opened: NUISANCE - JUNK MOTOR VEHICLE"
-    assert opened.summary is not None and opened.summary.startswith("Two inoperable vehicles")
-    assert action.event_date == datetime(2025, 3, 15, tzinfo=UTC)
-    assert action.title == "Code enforcement action: NOTICE OF VIOLATION ISSUED"
-    for candidate in rec.event_candidates:
-        assert candidate.verification_level == VerificationLevel.GOVERNMENT_RECORD
-        assert candidate.confidence == 1.0
 
 
-def test_normalize_closed_project_emits_resolved_and_suppresses_same_day_action() -> None:
-    rec = normalize_houston_code_record(_fixture_records()[CLOSED_PROJECT])
+def test_normalize_truncates_ordinance_summary_to_500_chars() -> None:
+    raw = _fixture_records()[ADDRESS_VIOLATION]
+    assert raw["ShortDescription"] is not None and len(raw["ShortDescription"]) > 500
 
-    # last_action_date == date_closed, so no separate ACTION event.
-    assert [c.event_type for c in rec.event_candidates] == [
-        EventType.CODE_VIOLATION_OPENED,
-        EventType.CODE_VIOLATION_RESOLVED,
-    ]
-    opened, resolved = rec.event_candidates
-    assert opened.event_date == datetime(2024, 11, 5, tzinfo=UTC)
-    assert resolved.event_date == datetime(2025, 1, 20, tzinfo=UTC)
-    assert resolved.title == "Code violation resolved"
+    rec = normalize_houston_code_record(raw)
+    summary = rec.event_candidates[0].summary
+    assert summary is not None
+    assert len(summary) == 500
+    assert raw["ShortDescription"].startswith(summary)
 
 
-def test_normalize_orders_all_three_events_chronologically() -> None:
-    rec = normalize_houston_code_record(_fixture_records()["COD-2024-016120"])
+def test_normalize_never_fabricates_resolved_event_for_closed_status() -> None:
+    rec = normalize_houston_code_record(_fixture_records()[CLOSED_VIOLATION])
 
-    assert [c.event_type for c in rec.event_candidates] == [
-        EventType.CODE_VIOLATION_OPENED,
-        EventType.CODE_VIOLATION_ACTION,
-        EventType.CODE_VIOLATION_RESOLVED,
-    ]
-    dates = [c.event_date for c in rec.event_candidates]
-    assert dates == sorted(dates)
+    # The resource has no closure date; CLOSED status must not invent one.
+    assert rec.raw_payload["Project_Status"] == "CLOSED"
+    assert [c.event_type for c in rec.event_candidates] == [EventType.CODE_VIOLATION_OPENED]
+
+    # And the same holds for every parseable record in the fixture.
+    for raw in _fixture_record_list():
+        try:
+            normalized = normalize_houston_code_record(raw)
+        except ValueError:
+            continue
+        assert [c.event_type for c in normalized.event_candidates] == [
+            EventType.CODE_VIOLATION_OPENED
+        ]
 
 
-def test_normalize_rejects_malformed_date() -> None:
-    with pytest.raises(ValueError, match="date_opened"):
-        normalize_houston_code_record(_fixture_records()[MALFORMED_PROJECT])
+def test_normalize_title_falls_back_without_category() -> None:
+    rec = normalize_houston_code_record(_fixture_records()[NO_CATEGORY_VIOLATION])
+
+    opened = rec.event_candidates[0]
+    assert opened.title == "Code violation opened"
+    assert opened.summary is None
 
 
-def test_normalize_requires_date_opened() -> None:
-    record = dict(_fixture_records()[OPEN_PROJECT], date_opened=None)
-    with pytest.raises(ValueError, match="date_opened"):
+def test_normalize_never_puts_comment311upd_in_title_or_summary() -> None:
+    saw_comment = False
+    for raw in _fixture_record_list():
+        try:
+            rec = normalize_houston_code_record(raw)
+        except ValueError:
+            continue
+        comment = raw.get("Comment311upd")
+        for candidate in rec.event_candidates:
+            text = candidate.title + " " + (candidate.summary or "")
+            assert COMMENT_SENTINEL not in text
+            if comment:
+                saw_comment = True
+                assert comment not in text
+    assert saw_comment  # the fixture must keep exercising this
+
+
+def test_normalize_rejects_malformed_record_create_date() -> None:
+    with pytest.raises(ValueError, match="RecordCreateDate"):
+        normalize_houston_code_record(_fixture_records()[MALFORMED_VIOLATION])
+
+
+def test_normalize_requires_record_create_date() -> None:
+    record = dict(_fixture_records()[OPEN_VIOLATION], RecordCreateDate=None)
+    with pytest.raises(ValueError, match="RecordCreateDate"):
         normalize_houston_code_record(record)
 
 
-def test_normalize_falls_back_to_ckan_id_when_project_number_missing() -> None:
-    record = dict(_fixture_records()[OPEN_PROJECT], project_number=None)
-    rec = normalize_houston_code_record(record)
-    assert rec.source_record_id == "2"
+def test_normalize_source_id_falls_back_to_npprjid_composite() -> None:
+    raw = next(r for r in _fixture_record_list() if r["_id"] == COMPOSITE_ID_RECORD)
+    assert raw["ViolationSubId"] is None
+
+    rec = normalize_houston_code_record(raw)
+    assert rec.source_record_id == f"{raw['NPPRJID']}-{COMPOSITE_ID_RECORD}"
+
+
+def test_normalize_requires_some_record_identifier() -> None:
+    record = dict(_fixture_records()[OPEN_VIOLATION], ViolationSubId=None, NPPRJID=None)
+    with pytest.raises(ValueError, match="ViolationSubId"):
+        normalize_houston_code_record(record)
+
+
+def test_parse_ckan_datetime_accepts_dataset_and_iso_variants() -> None:
+    expected = datetime(2016, 4, 29, tzinfo=UTC)
+    for text in ("2016-04-29 00:00:00", "2016-04-29T00:00:00", "2016-04-29T00:00:00+00:00"):
+        assert parse_ckan_datetime(text, field="RecordCreateDate") == expected
+    assert parse_ckan_datetime(None, field="RecordCreateDate") is None
+    assert parse_ckan_datetime("   ", field="RecordCreateDate") is None
 
 
 # ---------------------------------------------------------------------------
@@ -200,11 +271,12 @@ def test_parse_yields_all_records_from_ckan_shaped_snapshot() -> None:
 
     assert len(records) == 15
     assert all(isinstance(record, dict) for record in records)
-    assert {record["project_number"] for record in records} >= {
-        CLOSED_PROJECT,
-        OPEN_PROJECT,
-        UNMATCHED_PROJECT,
-        MALFORMED_PROJECT,
+    assert {record.get("ViolationSubId") for record in records} >= {
+        CLOSED_VIOLATION,
+        OPEN_VIOLATION,
+        ADDRESS_VIOLATION,
+        UNMATCHED_VIOLATION,
+        MALFORMED_VIOLATION,
     }
 
 
@@ -220,13 +292,15 @@ def test_fetch_paginates_ckan_and_writes_checksummed_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "houston_code_resource_id", "res-test-123")
-    all_records = [{"_id": i, "project_number": f"COD-PAGE-{i}"} for i in range(1, 6)]
+    all_records = [{"_id": i, "ViolationSubId": f"90{i}"} for i in range(1, 6)]
     offsets_seen: list[int] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"  # large filter sets must not ride the URL (414)
         assert request.url.path == "/api/3/action/datastore_search"
-        params = dict(request.url.params)
+        params = json.loads(request.content)
         assert params["resource_id"] == "res-test-123"
+        assert "filters" not in params  # none configured
         offset = int(params["offset"])
         limit = int(params["limit"])
         offsets_seen.append(offset)
@@ -256,6 +330,94 @@ def test_fetch_paginates_ckan_and_writes_checksummed_snapshot(
     assert list(adapter.parse(snapshot)) == all_records
 
 
+def test_fetch_honors_max_records_and_zip_filters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "houston_code_resource_id", "res-test-123")
+    all_records = [{"_id": i, "ViolationSubId": f"90{i}", "Zip": "77006"} for i in range(1, 6)]
+    requests_seen: list[tuple[int, int]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"  # large filter sets must not ride the URL (414)
+        params = json.loads(request.content)
+        assert params["filters"] == {"Zip": "77006"}
+        offset, limit = int(params["offset"]), int(params["limit"])
+        requests_seen.append((offset, limit))
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "result": {
+                    "records": all_records[offset : offset + limit],
+                    "total": len(all_records),
+                },
+            },
+        )
+
+    adapter = HoustonCodeAdapter(
+        raw_dir=tmp_path,
+        page_size=2,
+        max_records=3,
+        filters={"Zip": "77006"},
+        transport=httpx.MockTransport(handler),
+    )
+    snapshot = asyncio.run(adapter.fetch())
+
+    # Second page only asks for the single record still needed; paging stops at 3.
+    assert requests_seen == [(0, 2), (2, 1)]
+    assert list(adapter.parse(snapshot)) == all_records[:3]
+
+
+def test_adapter_rejects_nonpositive_max_records() -> None:
+    with pytest.raises(ValueError, match="max_records"):
+        HoustonCodeAdapter(max_records=0)
+
+
+# ---------------------------------------------------------------------------
+# sync CLI: bounded live pulls
+# ---------------------------------------------------------------------------
+
+
+def test_cli_translates_zip_and_max_records_into_adapter_bounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "houston_code_resource_id", "res-live-1")
+    captured: dict[str, Any] = {}
+
+    def fake_run_sync(adapter: Any, session_factory: Any, *, snapshot: Any = None) -> Any:
+        captured["adapter"] = adapter
+        captured["snapshot"] = snapshot
+        return SimpleNamespace(
+            id="00000000-0000-0000-0000-000000000000",
+            status="SUCCEEDED",
+            records_parsed=0,
+            records_matched=0,
+            records_unmatched=0,
+            records_rejected=0,
+            source_records_created=0,
+            events_created=0,
+            snapshot_path=None,
+            error_message=None,
+        )
+
+    monkeypatch.setattr(sync_mod, "run_sync", fake_run_sync)
+    exit_code = sync_mod.main(["--max-records", "25", "--zip", "77006"])
+
+    assert exit_code == 0
+    assert captured["snapshot"] is None  # live mode
+    adapter = captured["adapter"]
+    assert isinstance(adapter, HoustonCodeAdapter)
+    assert adapter._max_records == 25
+    assert adapter._filters == {"Zip": "77006"}
+
+
+def test_cli_rejects_live_only_options_in_file_mode() -> None:
+    with pytest.raises(SystemExit):
+        sync_mod.main(["--file", str(FIXTURE_PATH), "--zip", "77006"])
+    with pytest.raises(SystemExit):
+        sync_mod.main(["--file", str(FIXTURE_PATH), "--max-records", "5"])
+
+
 # ---------------------------------------------------------------------------
 # end to end: fixture sync through the shared runner
 # ---------------------------------------------------------------------------
@@ -275,12 +437,12 @@ def test_fixture_sync_end_to_end_and_idempotent(
     assert run1.status == "SUCCEEDED"
     assert run1.error_message is None
     assert run1.records_parsed == 15
-    assert run1.records_matched == 2
-    assert run1.records_unmatched == 12
+    assert run1.records_matched == 3
+    assert run1.records_unmatched == 11
     assert run1.records_rejected == 1
     assert run1.source_records_created == 14
-    assert run1.events_created == 4
-    assert run1.parser_version == "1.0.0"
+    assert run1.events_created == 3
+    assert run1.parser_version == "2.0.0"
     assert run1.snapshot_path == str(FIXTURE_PATH.resolve())
     assert run1.snapshot_checksum == snapshot.checksum
 
@@ -289,11 +451,13 @@ def test_fixture_sync_end_to_end_and_idempotent(
         .scalars()
         .all()
     )
-    by_project = {sr.source_record_id: sr for sr in source_records}
-    assert len(by_project) == 14
-    assert MALFORMED_PROJECT not in by_project  # rejected before any write
+    by_sub_id = {sr.source_record_id: sr for sr in source_records}
+    assert len(by_sub_id) == 14
+    assert MALFORMED_VIOLATION not in by_sub_id  # rejected before any write
+    assert "700790-8" in by_sub_id  # NPPRJID-_id composite fallback id
+    assert all(sr.record_type == "code_enforcement_violation" for sr in source_records)
 
-    # --- matched records: events in chronological order with full provenance ---
+    # --- matched records: one OPENED event each, chronological, full provenance ---
     events = (
         db.execute(
             select(LedgerEvent)
@@ -304,40 +468,77 @@ def test_fixture_sync_end_to_end_and_idempotent(
         .all()
     )
     assert [
-        (e.event_type, e.event_date, e.title, _project_of(by_project, e)) for e in events
-    ] == [
-        (event_type, event_date, title, project)
-        for event_type, event_date, title, project in EXPECTED_TIMELINE
-    ]
-    event_dates = [e.event_date for e in events]
-    assert event_dates == sorted(event_dates)
+        (e.event_type, e.event_date, e.title, _sub_id_of(by_sub_id, e)) for e in events
+    ] == EXPECTED_TIMELINE
     for event in events:
         assert event.source_record_id is not None
         assert event.verification_level == VerificationLevel.GOVERNMENT_RECORD
         assert event.confidence == 1.0
         assert event.visibility == Visibility.PUBLIC
 
-    # --- the CLOSED project specifically yields OPENED and RESOLVED ---
-    closed_events = [e for e in events if _project_of(by_project, e) == CLOSED_PROJECT]
-    assert [e.event_type for e in closed_events] == [
-        EventType.CODE_VIOLATION_OPENED,
-        EventType.CODE_VIOLATION_RESOLVED,
-    ]
+    # --- no fabricated RESOLVED/ACTION: the resource has no closure date ---
+    non_opened = db.execute(
+        select(func.count())
+        .select_from(LedgerEvent)
+        .where(
+            LedgerEvent.source_record_id.in_([sr.id for sr in source_records]),
+            LedgerEvent.event_type != EventType.CODE_VIOLATION_OPENED,
+        )
+    ).scalar_one()
+    assert non_opened == 0
+    # CLOSED status is retained in the raw payload only — the honest timeline.
+    assert by_sub_id[CLOSED_VIOLATION].raw_payload["Project_Status"] == "CLOSED"
 
-    # --- both matched records attached via the address ladder (EXACT_ADDRESS) ---
-    for project in (CLOSED_PROJECT, OPEN_PROJECT):
+    # --- Comment311upd (may contain names) never surfaces in a public event ---
+    all_source_events = (
+        db.execute(
+            select(LedgerEvent).where(
+                LedgerEvent.source_record_id.in_([sr.id for sr in source_records])
+            )
+        )
+        .scalars()
+        .all()
+    )
+    fixture_comments = [
+        record["Comment311upd"] for record in _fixture_record_list() if record["Comment311upd"]
+    ]
+    assert fixture_comments  # the fixture must keep planting comments
+    for event in all_source_events:
+        text = event.title + " " + (event.summary or "")
+        assert COMMENT_SENTINEL not in text
+        for comment in fixture_comments:
+            assert comment not in text
+
+    # --- ordinance summary made it through, truncated to 500 chars ---
+    address_event = next(e for e in events if _sub_id_of(by_sub_id, e) == ADDRESS_VIOLATION)
+    assert address_event.summary is not None and len(address_event.summary) == 500
+
+    # --- HCAD rung for the two account-bearing records (confidence 1.0) ---
+    for sub_id in (CLOSED_VIOLATION, OPEN_VIOLATION):
         match = db.execute(
             select(RecordPropertyMatch).where(
-                RecordPropertyMatch.source_record_id == by_project[project].id
+                RecordPropertyMatch.source_record_id == by_sub_id[sub_id].id
             )
         ).scalar_one()
         assert match.property_id == prop.id
-        assert match.match_method == MatchMethod.EXACT_ADDRESS
+        assert match.match_method == MatchMethod.HCAD_ID
+        assert match.confidence == 1.0
         assert match.review_status == MatchReviewStatus.AUTO_ACCEPTED
-        assert by_project[project].property_id == prop.id
+        assert by_sub_id[sub_id].property_id == prop.id
+
+    # --- blank-HCAD record falls through to the EXACT_ADDRESS rung ---
+    address_match = db.execute(
+        select(RecordPropertyMatch).where(
+            RecordPropertyMatch.source_record_id == by_sub_id[ADDRESS_VIOLATION].id
+        )
+    ).scalar_one()
+    assert address_match.property_id == prop.id
+    assert address_match.match_method == MatchMethod.EXACT_ADDRESS
+    assert address_match.confidence == 0.99
+    assert address_match.review_status == MatchReviewStatus.AUTO_ACCEPTED
 
     # --- unmatched record: queue row with property_id None and ZERO events (§29) ---
-    unmatched_sr = by_project[UNMATCHED_PROJECT]
+    unmatched_sr = by_sub_id[UNMATCHED_VIOLATION]
     unmatched_match = db.execute(
         select(RecordPropertyMatch).where(
             RecordPropertyMatch.source_record_id == unmatched_sr.id
@@ -357,20 +558,20 @@ def test_fixture_sync_end_to_end_and_idempotent(
         == 0
     )
 
-    # --- no events exist beyond the four expected ones for the matched property ---
+    # --- no events exist beyond the three expected ones for the matched property ---
     total_events = db.execute(
         select(func.count())
         .select_from(LedgerEvent)
         .where(LedgerEvent.source_record_id.in_([sr.id for sr in source_records]))
     ).scalar_one()
-    assert total_events == 4
+    assert total_events == 3
 
     # --- re-run with the same snapshot: zero new source_records/events ---
     run2 = run_sync(HoustonCodeAdapter(), run_session_factory, snapshot=snapshot)
     assert run2.status == "SUCCEEDED"
     assert run2.records_parsed == 15
-    assert run2.records_matched == 2
-    assert run2.records_unmatched == 12
+    assert run2.records_matched == 3
+    assert run2.records_unmatched == 11
     assert run2.records_rejected == 1
     assert run2.source_records_created == 0
     assert run2.events_created == 0
@@ -389,7 +590,7 @@ def test_fixture_sync_end_to_end_and_idempotent(
             .select_from(LedgerEvent)
             .where(LedgerEvent.property_id == prop.id)
         ).scalar_one()
-        == 4
+        == 3
     )
 
     # --- SourceSyncRun rows persisted with counters populated ---
@@ -405,14 +606,14 @@ def test_fixture_sync_end_to_end_and_idempotent(
         assert run.finished_at is not None
         assert run.records_parsed == 15
         assert run.records_rejected == 1
-        assert run.parser_version == "1.0.0"
+        assert run.parser_version == "2.0.0"
         assert run.snapshot_path == str(FIXTURE_PATH.resolve())
         assert run.snapshot_checksum == snapshot.checksum
 
 
-def _project_of(by_project: dict[str, SourceRecord], event: LedgerEvent) -> str:
-    """Resolve a ledger event back to the project_number of its source record."""
-    for project, source_record in by_project.items():
+def _sub_id_of(by_sub_id: dict[str, SourceRecord], event: LedgerEvent) -> str:
+    """Resolve a ledger event back to the ViolationSubId of its source record."""
+    for sub_id, source_record in by_sub_id.items():
         if source_record.id == event.source_record_id:
-            return project
+            return sub_id
     raise AssertionError(f"event {event.id} has no source record in this sync")

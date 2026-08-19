@@ -1,10 +1,17 @@
 """Houston CKAN Building Code Enforcement source adapter (spec section 29).
 
+Dataset: "City of Houston Building Code Enforcement Violations (DON)", resource
+``1446a3ec-2633-4cf1-b15d-6dae9a07c4ed`` ("All Code Enforcement Violations in
+FORMS Since 2014", ~376k rows) on https://data.houstontx.gov.
+
 ``fetch`` pages through the CKAN ``datastore_search`` API for the resource id
 configured in settings, combines all pages, and writes one checksummed JSON
-snapshot to ``data/raw/houston_code/<timestamp>.json``. ``parse`` streams the
-record dicts back out of a snapshot (live-fetched or a local ``--file`` one —
-both use the CKAN response envelope). ``normalize`` is a thin wrapper around
+snapshot to ``data/raw/houston_code/<timestamp>.json``. ``max_records`` bounds
+how many records a live pull collects; ``filters`` is passed through as the
+CKAN ``datastore_search`` ``filters`` JSON parameter (e.g. ``{"Zip": "77006"}``).
+``parse`` streams the record dicts back out of a snapshot (live-fetched or a
+local ``--file`` one — both use the CKAN response envelope). ``normalize`` is a
+thin wrapper around
 :func:`app.ingestion.houston_code.normalize.normalize_houston_code_record`.
 
 The adapter never writes to the database; ``app.ingestion.runner.run_sync``
@@ -27,7 +34,7 @@ from app.ingestion.base import NormalizedRecord, RawSnapshot, SourceAdapter
 from app.ingestion.houston_code.normalize import normalize_houston_code_record
 
 SOURCE_NAME: Final[str] = "houston_code_enforcement"
-PARSER_VERSION: Final[str] = "1.0.0"
+PARSER_VERSION: Final[str] = "2.0.0"
 DATASTORE_SEARCH_PATH: Final[str] = "/api/3/action/datastore_search"
 DEFAULT_PAGE_SIZE: Final[int] = 1000
 
@@ -73,10 +80,16 @@ class HoustonCodeAdapter(SourceAdapter):
         *,
         raw_dir: pathlib.Path | None = None,
         page_size: int = DEFAULT_PAGE_SIZE,
+        max_records: int | None = None,
+        filters: dict[str, Any] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        if max_records is not None and max_records < 1:
+            raise ValueError("max_records must be >= 1 when given")
         self._raw_dir = raw_dir if raw_dir is not None else DEFAULT_RAW_DIR
         self._page_size = page_size
+        self._max_records = max_records  # bound live pulls; None -> everything
+        self._filters = filters  # CKAN datastore_search "filters" JSON param
         self._transport = transport  # injectable for tests; None -> real HTTP
 
     async def fetch(self) -> RawSnapshot:
@@ -98,14 +111,20 @@ class HoustonCodeAdapter(SourceAdapter):
             timeout=httpx.Timeout(30.0), transport=self._transport
         ) as client:
             while True:
-                response = await client.get(
-                    url,
-                    params={
-                        "resource_id": resource_id,
-                        "limit": self._page_size,
-                        "offset": offset,
-                    },
-                )
+                limit = self._page_size
+                if self._max_records is not None:
+                    limit = min(limit, self._max_records - len(records))
+                # POST, not GET: CKAN accepts JSON bodies on datastore_search,
+                # and large filter sets (e.g. thousands of HCAD accounts)
+                # overflow a URL (414).
+                body: dict[str, Any] = {
+                    "resource_id": resource_id,
+                    "limit": limit,
+                    "offset": offset,
+                }
+                if self._filters:
+                    body["filters"] = self._filters
+                response = await client.post(url, json=body)
                 response.raise_for_status()
                 payload = response.json()
                 if not payload.get("success", False):
@@ -116,7 +135,10 @@ class HoustonCodeAdapter(SourceAdapter):
                 page = result.get("records") or []
                 records.extend(page)
                 total = int(result.get("total", len(records)))
-                offset += self._page_size
+                offset += limit
+                if self._max_records is not None and len(records) >= self._max_records:
+                    records = records[: self._max_records]
+                    break
                 if not page or len(records) >= total:
                     break
 

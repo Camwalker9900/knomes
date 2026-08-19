@@ -4,8 +4,12 @@ Modes:
 
 - ``--file PATH`` — fixture/manual mode: wrap a local CKAN-shaped records JSON
   file as a checksummed :class:`RawSnapshot` and run the pipeline against it.
-- no arguments   — live mode: the adapter pages through the CKAN
+- no ``--file``   — live mode: the adapter pages through the CKAN
   ``datastore_search`` API (requires ``houston_code_resource_id`` in settings).
+  ``--max-records N`` bounds how many records are pulled and ``--zip ZIPCODE``
+  restricts the pull server-side via the CKAN ``filters={"Zip": ZIPCODE}``
+  parameter — both are for bounded live pulls and cannot combine with
+  ``--file``.
 
 Either way the full pipeline (matching ladder, unmatched queue, source_records,
 ledger events, sync-run metrics) is delegated to
@@ -60,11 +64,33 @@ def main(argv: list[str] | None = None) -> int:
             " (e.g. data/fixtures/houston_code_sample/records.json)"
         ),
     )
+    parser.add_argument(
+        "--max-records",
+        type=int,
+        default=None,
+        metavar="N",
+        help="live mode only: stop paging once N records have been collected",
+    )
+    parser.add_argument(
+        "--zip",
+        dest="zip_code",
+        default=None,
+        metavar="ZIPCODE",
+        help=(
+            "live mode only: restrict the pull to one ZIP code"
+            ' (CKAN datastore_search filters={"Zip": ZIPCODE})'
+        ),
+    )
     args = parser.parse_args(argv)
     configure_logging()
 
+    if args.max_records is not None and args.max_records < 1:
+        parser.error("--max-records must be >= 1")
+
     snapshot: RawSnapshot | None = None
     if args.file is not None:
+        if args.max_records is not None or args.zip_code is not None:
+            parser.error("--max-records/--zip apply to live CKAN mode; not valid with --file")
         if not args.file.is_file():
             parser.error(f"snapshot file not found: {args.file}")
         snapshot = build_snapshot_from_file(args.file)
@@ -74,7 +100,11 @@ def main(argv: list[str] | None = None) -> int:
             " set it in the environment for live CKAN sync, or pass --file PATH"
         )
 
-    run = run_sync(HoustonCodeAdapter(), SessionLocal, snapshot=snapshot)
+    adapter = HoustonCodeAdapter(
+        max_records=args.max_records,
+        filters={"Zip": args.zip_code} if args.zip_code is not None else None,
+    )
+    run = run_sync(adapter, SessionLocal, snapshot=snapshot)
     logger.info(
         "houston code sync finished",
         extra={

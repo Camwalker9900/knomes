@@ -22,14 +22,14 @@ HCAD is the **canonical parcel bootstrap**: it creates/updates `properties` keye
 
 | | |
 |---|---|
-| Source | City of Houston Open Data portal, building code enforcement dataset |
+| Source | City of Houston Open Data portal, dataset "City of Houston Building Code Enforcement Violations (DON)", resource "All Code Enforcement Violations in FORMS Since 2014" (`1446a3ec-2633-4cf1-b15d-6dae9a07c4ed`, ~376k rows) |
 | Owner | City of Houston |
 | Acquisition method | CKAN `datastore_search` API with pagination via httpx; base URL `https://data.houstontx.gov`, resource id via `HOUSTON_CODE_RESOURCE_ID` |
 | License / usage terms | Open government data published through the city's open-data portal API |
-| Refresh frequency | API-accessible on demand; Knomes syncs via `make import-houston-code` (history back to at least 2014) |
-| Fields consumed | project/case id, violation type, action, status, dates, address (matched via the address ladder) |
-| Known limitations | Address-only matching (no HCAD account id) so some records land in the unmatched queue; upstream field quality and update cadence controlled by the city |
-| Adapter | `app/ingestion/houston_code/` (adapter, normalize, sync) — emits CODE_VIOLATION_OPENED / CODE_VIOLATION_ACTION / CODE_VIOLATION_RESOLVED at GOVERNMENT_RECORD, confidence 1.0 |
+| Refresh frequency | API-accessible on demand; Knomes syncs via `make import-houston-code` (history back to 2014) |
+| Fields consumed | `ViolationSubId` → source_record_id (fallback `NPPRJID`-`_id`); `HCAD` → hcad_account_id (HCAD_ID match rung at 1.0); `Merged_Situs` (+ `Zip` in payload) → address ladder; `RecordCreateDate` → CODE_VIOLATION_OPENED event date; `Violation_Category` → event title; `ShortDescription` (ordinance text) → event summary (500 chars); `Project_Status` retained in raw_payload |
+| Known limitations | No reliable closure date on the violations resource, so resolution events are omitted (a `CLOSED` status without a date never fabricates CODE_VIOLATION_RESOLVED); `Comment311upd` free text may contain personal names and never surfaces in public titles/summaries; some `HCAD` fields are blank so those records fall back to address matching or the unmatched queue |
+| Adapter | `app/ingestion/houston_code/` (adapter, normalize, sync) — emits CODE_VIOLATION_OPENED at GOVERNMENT_RECORD, confidence 1.0 |
 | Last verified | 2026-08-19 |
 
 ## Houston Permits

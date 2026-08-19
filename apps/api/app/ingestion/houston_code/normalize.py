@@ -1,21 +1,35 @@
 """Normalize raw Houston code-enforcement records to the canonical ingestion shape.
 
-Pure functions: no I/O, no database. A CKAN ``datastore_search`` record for the
-Building Code Enforcement dataset carries::
+Pure functions: no I/O, no database. A CKAN ``datastore_search`` record from
+resource ``1446a3ec-2633-4cf1-b15d-6dae9a07c4ed`` ("All Code Enforcement
+Violations in FORMS Since 2014") carries::
 
-    _id, project_number, address, violation_type, violation_description,
-    project_status, date_opened, date_closed, last_action, last_action_date, zip
+    _id, NPPRJID, Sr_Request_Num, RecordCreateDate, HCAD, Merged_Situs, Space,
+    Zip, CouncilDistrict, Subdivision, LegalDescription, "Legal 2",
+    Received_Method, Project_Status, Comment311upd, Violation_Category,
+    ViolationSubId, Ordno, ShortDescription, DeadLineDate, CheckBackDate
 
-One project maps to up to three ledger event candidates, all
-``GOVERNMENT_RECORD`` at confidence 1.0:
+One violation row maps to exactly one ledger event candidate:
 
-- ``CODE_VIOLATION_OPENED``   at ``date_opened`` (always; required field)
-- ``CODE_VIOLATION_ACTION``   at ``last_action_date`` when ``last_action`` is
-  present and the date is distinct from both ``date_opened`` and ``date_closed``
-- ``CODE_VIOLATION_RESOLVED`` at ``date_closed`` when present
+- ``CODE_VIOLATION_OPENED`` at ``RecordCreateDate`` (``GOVERNMENT_RECORD``,
+  confidence 1.0). The summary is ``ShortDescription`` (published ordinance
+  text) truncated to 500 characters.
 
-Malformed or missing required dates raise :class:`ValueError`; the sync runner
-counts those records as rejected without aborting the run.
+There is **no** ``CODE_VIOLATION_RESOLVED`` candidate: the resource carries no
+closure date (``DeadLineDate`` is a compliance deadline and ``CheckBackDate``
+a re-inspection date — neither is when the violation was resolved), and a
+``Project_Status`` of ``CLOSED`` without a date must not become a manufactured
+event. ``Project_Status`` stays visible in ``raw_payload`` for provenance.
+
+``Comment311upd`` is inspector free text that can contain personal names. It is
+retained only inside ``raw_payload`` (private provenance) and must NEVER be
+used in a public event title or summary.
+
+``HCAD`` is the Harris County appraisal account number; when present it feeds
+``hcad_account_id`` so the matching ladder's HCAD_ID rung fires at 1.0.
+
+Malformed or missing ``RecordCreateDate`` raises :class:`ValueError`; the sync
+runner counts those records as rejected without aborting the run.
 """
 
 from __future__ import annotations
@@ -27,7 +41,8 @@ from app.enums import EventType, VerificationLevel
 from app.ingestion.base import EventCandidate, NormalizedRecord
 from app.lib.address import normalize_address
 
-RECORD_TYPE: Final[str] = "code_enforcement_project"
+RECORD_TYPE: Final[str] = "code_enforcement_violation"
+SUMMARY_MAX_CHARS: Final[int] = 500
 
 
 def _clean_str(value: Any) -> str | None:
@@ -39,10 +54,12 @@ def _clean_str(value: Any) -> str | None:
 
 
 def parse_ckan_datetime(value: Any, *, field: str) -> datetime | None:
-    """Parse a CKAN ISO-8601 date/datetime field; naive values are taken as UTC.
+    """Parse a CKAN date/datetime field; naive values are taken as UTC.
 
-    Returns None for absent/empty values. Raises ValueError for anything that is
-    present but not ISO-8601 — the runner counts such records as rejected.
+    Accepts ``YYYY-MM-DD HH:MM:SS`` (the dataset's native format) and ISO-8601
+    variants — both are handled by :meth:`datetime.fromisoformat`. Returns None
+    for absent/empty values. Raises ValueError for anything that is present but
+    unparseable — the runner counts such records as rejected.
     """
     text = _clean_str(value)
     if text is None:
@@ -56,76 +73,59 @@ def parse_ckan_datetime(value: Any, *, field: str) -> datetime | None:
     return parsed
 
 
-def _candidate(
-    event_type: str, event_date: datetime, title: str, summary: str | None
-) -> EventCandidate:
-    return EventCandidate(
-        event_type=event_type,
-        event_date=event_date,
-        title=title,
-        summary=summary,
-        verification_level=VerificationLevel.GOVERNMENT_RECORD,
-        confidence=1.0,
-    )
-
-
 def normalize_houston_code_record(record: dict[str, Any]) -> NormalizedRecord:
-    """Map one raw CKAN record to a :class:`NormalizedRecord` with event candidates."""
-    source_record_id = _clean_str(record.get("project_number")) or _clean_str(record.get("_id"))
+    """Map one raw CKAN violation record to a :class:`NormalizedRecord`."""
+    source_record_id = _clean_str(record.get("ViolationSubId"))
     if source_record_id is None:
-        raise ValueError("record carries neither project_number nor _id")
+        npprjid = _clean_str(record.get("NPPRJID"))
+        ckan_id = _clean_str(record.get("_id"))
+        if npprjid is not None and ckan_id is not None:
+            source_record_id = f"{npprjid}-{ckan_id}"
+    if source_record_id is None:
+        raise ValueError("record carries neither ViolationSubId nor an NPPRJID/_id pair")
 
-    raw_address = _clean_str(record.get("address"))
+    hcad_account_id = _clean_str(record.get("HCAD"))
+    raw_address = _clean_str(record.get("Merged_Situs"))
     normalized = normalize_address(raw_address) if raw_address is not None else None
 
-    date_opened = parse_ckan_datetime(record.get("date_opened"), field="date_opened")
-    if date_opened is None:
-        raise ValueError(f"record {source_record_id} has no date_opened")
-    date_closed = parse_ckan_datetime(record.get("date_closed"), field="date_closed")
-    last_action_date = parse_ckan_datetime(record.get("last_action_date"), field="last_action_date")
+    record_create_date = parse_ckan_datetime(
+        record.get("RecordCreateDate"), field="RecordCreateDate"
+    )
+    if record_create_date is None:
+        raise ValueError(f"record {source_record_id} has no RecordCreateDate")
 
-    violation_type = _clean_str(record.get("violation_type"))
-    violation_description = _clean_str(record.get("violation_description"))
-    last_action = _clean_str(record.get("last_action"))
+    violation_category = _clean_str(record.get("Violation_Category"))
+    short_description = _clean_str(record.get("ShortDescription"))
 
-    opened_title = (
-        f"Code violation opened: {violation_type}"
-        if violation_type is not None
+    title = (
+        f"Code violation opened: {violation_category}"
+        if violation_category is not None
         else "Code violation opened"
     )
-    candidates: list[EventCandidate] = [
-        _candidate(
-            EventType.CODE_VIOLATION_OPENED, date_opened, opened_title, violation_description
+    # ShortDescription is published ordinance text — safe for the public
+    # ledger. Comment311upd is free text that may contain names and must never
+    # appear here.
+    summary = short_description[:SUMMARY_MAX_CHARS] if short_description is not None else None
+
+    candidates = [
+        EventCandidate(
+            event_type=EventType.CODE_VIOLATION_OPENED,
+            event_date=record_create_date,
+            title=title,
+            summary=summary,
+            verification_level=VerificationLevel.GOVERNMENT_RECORD,
+            confidence=1.0,
         )
     ]
-    if (
-        last_action is not None
-        and last_action_date is not None
-        and last_action_date != date_opened
-        and last_action_date != date_closed
-    ):
-        candidates.append(
-            _candidate(
-                EventType.CODE_VIOLATION_ACTION,
-                last_action_date,
-                f"Code enforcement action: {last_action}",
-                None,
-            )
-        )
-    if date_closed is not None:
-        candidates.append(
-            _candidate(
-                EventType.CODE_VIOLATION_RESOLVED, date_closed, "Code violation resolved", None
-            )
-        )
-    candidates.sort(key=lambda candidate: candidate.event_date)
+    # No CODE_VIOLATION_RESOLVED: this resource has no closure date, and a
+    # CLOSED Project_Status without a date would be a manufactured fact.
 
     return NormalizedRecord(
         record_type=RECORD_TYPE,
         source_record_id=source_record_id,
         raw_payload=dict(record),
         normalized_address=normalized,
-        hcad_account_id=None,
+        hcad_account_id=hcad_account_id,
         event_candidates=candidates,
         raw_address=raw_address,
     )
