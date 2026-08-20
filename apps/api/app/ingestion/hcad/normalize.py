@@ -14,8 +14,10 @@ count without crashing), while a merely missing ``yr_impr`` yields
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, Final
 
@@ -27,10 +29,19 @@ from app.lib.address import address_hash, normalize_address
 
 HCAD_SOURCE_NAME: Final[str] = "hcad"
 HCAD_RECORD_TYPE: Final[str] = "real_acct"
-HCAD_PARSER_VERSION: Final[str] = "1.1.0"
+HCAD_PARSER_VERSION: Final[str] = "1.2.0"  # 1.2.0: new_own_dt -> OWNERSHIP_TRANSFER
 
 DEFAULT_CITY: Final[str] = "HOUSTON"
 DEFAULT_STATE: Final[str] = "TX"
+
+# Fixed public wording for OWNERSHIP_TRANSFER events derived from new_own_dt.
+# The platform is property-centric: owner names / mailing fields must NEVER
+# appear in public event titles or summaries (privacy spec §37), so the title
+# is a constant and the summary is always None.
+OWNERSHIP_TRANSFER_TITLE: Final[str] = "Ownership transferred"
+
+# new_own_dt is MM/DD/YYYY (a 4-digit year is required; HCAD pads with spaces).
+_NEW_OWN_DT_RE: Final[re.Pattern[str]] = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")
 
 
 class HCADRowError(ValueError):
@@ -132,6 +143,23 @@ def parse_property_fields(raw: Mapping[str, object]) -> ParsedProperty:
         lot_sqft=_land_sqft_or_none(raw, "land_ar", acct),
         property_type=_text(raw, "state_class") or None,
     )
+
+
+def parse_new_owner_date(value: object) -> datetime | None:
+    """Parse HCAD ``new_own_dt`` (MM/DD/YYYY) into a UTC-midnight datetime.
+
+    Returns ``None`` for blank or malformed values (wrong shape, impossible
+    calendar dates like 02/30/2020, non-4-digit years). Never raises: a bad
+    ownership date must never reject the row — it only skips the event.
+    """
+    cleaned = ("" if value is None else str(value)).strip()
+    if not _NEW_OWN_DT_RE.match(cleaned):
+        return None
+    try:
+        parsed = datetime.strptime(cleaned, "%m/%d/%Y")
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=UTC)
 
 
 def _iter_snapshot_rows(path: Path) -> Iterator[dict[str, Any]]:

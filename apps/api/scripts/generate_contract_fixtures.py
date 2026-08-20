@@ -134,6 +134,11 @@ def build_property_detail() -> PropertyDetail:
         property_type="SINGLE_FAMILY",
         latitude=29.7604,
         longitude=-95.3698,
+        bedrooms=3,
+        bathrooms_full=2,
+        bathrooms_half=1,
+        quality_code="B",
+        year_remodeled=2016,
         condition_summary=ConditionSummary(
             open_findings=1,
             resolved_findings=1,

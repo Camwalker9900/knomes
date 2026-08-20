@@ -24,7 +24,11 @@ A street address is **never** a permanent identifier. Property identity resolves
 | latitude, longitude | NULL |
 | parcel_geometry | MULTIPOLYGON srid 4326, NULL; GIST index |
 | year_built, building_sqft, lot_sqft, property_type | from HCAD, NULL |
+| bedrooms, bathrooms_full, bathrooms_half | INTEGER, NULL — from HCAD building details `fixtures.txt` (migration 0002); a missing room type is stored as NULL, never a manufactured 0 |
+| quality_code, year_remodeled | TEXT / INTEGER, NULL — from HCAD building details `building_res.txt` (migration 0002); `yr_remodel` of `0`/blank = never remodeled → NULL |
 | created_at, updated_at | |
+
+The `PropertyDetail` contract (API + web types + `packages/shared/src/contracts.ts` + `packages/shared/fixtures/property_detail.json`) carries the same five nullable building-detail fields. The property page header renders "3 bd · 2.5 ba" (baths = full + half×0.5, shown only when bathrooms_full is non-null; half alone is never rendered) and "Remodeled {year}"; each segment is omitted when its data is null.
 
 ### property_addresses (alias table)
 property_id FK · raw_address · normalized_address (trigram index) · source · valid_from / valid_to · is_current. Captures renames and variants so old addresses still resolve.
@@ -57,7 +61,7 @@ property_id FK · submitter_role (`SubmitterRole`) · submitter contact fields (
 name · license fields · verification_status (`ProfessionalVerificationStatus`).
 
 ### source_sync_runs
-source_name · started_at / finished_at · snapshot storage path · snapshot checksum · source_url · parser_version · counters (parsed / inserted / matched / unmatched / rejected). Full reproducibility record per import run.
+source_name · started_at / finished_at · snapshot storage path · snapshot checksum · source_url · parser_version · counters (parsed / inserted / matched / unmatched / rejected / events_created). Full reproducibility record per import run.
 
 ### record_property_matches
 source_record_id FK · property_id FK NULL · match_method (`MatchMethod`) · confidence FLOAT · review_status (`MatchReviewStatus`) · match_reason TEXT. Unmatched records get `review_status='UNMATCHED'`, `property_id NULL` — the unmatched queue.
@@ -71,7 +75,7 @@ finding_id FK · candidate_event_id FK · match_score · status (`CandidateStatu
 ### audit_log
 actor_type · actor_id NULL · action · entity_type · entity_id · previous_value JSONB NULL · new_value JSONB NULL · timestamp default now.
 
-(`hcad_staging` also exists as a non-canonical COPY target for bulk loads — see [ingestion.md](ingestion.md).)
+(`hcad_staging` — an UNLOGGED table — also exists as a non-canonical COPY target for bulk loads, and `hcad_parcels_staging` is created and dropped by the GIS parcel loader — see [ingestion.md](ingestion.md).)
 
 ## Event types (`EventType`)
 

@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     hcad_download_url: str = ""  # set when licensing/URL confirmed
     houston_ckan_base_url: str = "https://data.houstontx.gov"
     houston_code_resource_id: str = ""
+    houston_actions_resource_id: str = "84a171f2-d601-4c79-bc4d-9733b378c663"
+    houston_actions_pre2014_resource_id: str = "58d4a211-6abe-4fa9-b12e-c065b81e2bbb"
+    houston_permits_source_url: str = ""
+    hcad_gis_parcels_url: str = ""
+    hcad_building_zip_url: str = "https://download.hcad.org/data/CAMA/2026/Real_building_land.zip"
 
 
 settings = Settings()

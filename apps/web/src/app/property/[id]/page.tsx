@@ -29,6 +29,17 @@ function metaLine(property: PropertyDetail): string {
   if (property.year_built !== null) {
     segments.push(`Built ${property.year_built}`);
   }
+  if (property.year_remodeled !== null) {
+    segments.push(`Remodeled ${property.year_remodeled}`);
+  }
+  if (property.bedrooms !== null) {
+    segments.push(`${property.bedrooms} bd`);
+  }
+  if (property.bathrooms_full !== null) {
+    // Half baths count as 0.5, e.g. 2 full + 1 half renders "2.5 ba".
+    const baths = property.bathrooms_full + (property.bathrooms_half ?? 0) / 2;
+    segments.push(`${baths} ba`);
+  }
   if (property.building_sqft !== null) {
     segments.push(`${formatNumber(property.building_sqft)} sq ft`);
   }

@@ -54,8 +54,17 @@ def run_sync(
     session_factory: Callable[[], Session],
     *,
     snapshot: RawSnapshot | None = None,
+    resolve_property: Callable[[Session, NormalizedRecord], MatchResult | None] | None = None,
 ) -> SourceSyncRun:
-    """Run one full sync of a source adapter and return the metrics row."""
+    """Run one full sync of a source adapter and return the metrics row.
+
+    ``resolve_property``, when provided, is tried FIRST for every normalized
+    record (e.g. linking a record through an upstream key rather than an
+    address). If it returns a :class:`MatchResult` that result is used as-is;
+    if it returns ``None`` the standard matching ladder
+    (:func:`match_record_to_property`) runs as the fallback. No other behavior
+    changes.
+    """
     session = session_factory()
     try:
         run = SourceSyncRun(
@@ -102,7 +111,11 @@ def run_sync(
                     )
                     continue
 
-                result = match_record_to_property(session, rec)
+                result: MatchResult | None = None
+                if resolve_property is not None:
+                    result = resolve_property(session, rec)
+                if result is None:
+                    result = match_record_to_property(session, rec)
                 source_record, created = _upsert_source_record(
                     session, adapter=adapter, snap=snap, rec=rec, result=result
                 )

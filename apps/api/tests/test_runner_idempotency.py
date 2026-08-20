@@ -28,6 +28,7 @@ from app.models import (
     SourceRecord,
     SourceSyncRun,
 )
+from app.services.matching import MatchResult
 
 SOURCE_NAME = "in_memory_test"
 
@@ -188,9 +189,7 @@ def _count(db: Session, stmt: Any) -> int:
 def test_run_sync_is_idempotent_end_to_end(
     db: Session, run_session_factory: Callable[[], Session]
 ) -> None:
-    prop_a = _make_property(
-        db, address_line1="4501 Runner Oak Drive", hcad_account_id="TESTRUN100"
-    )
+    prop_a = _make_property(db, address_line1="4501 Runner Oak Drive", hcad_account_id="TESTRUN100")
     prop_b = _make_property(db, address_line1="700 Idempotent Lane")
     db.commit()
 
@@ -225,9 +224,7 @@ def test_run_sync_is_idempotent_end_to_end(
     def match_rows(sr: SourceRecord) -> list[RecordPropertyMatch]:
         return list(
             db.execute(
-                select(RecordPropertyMatch).where(
-                    RecordPropertyMatch.source_record_id == sr.id
-                )
+                select(RecordPropertyMatch).where(RecordPropertyMatch.source_record_id == sr.id)
             )
             .scalars()
             .all()
@@ -263,9 +260,7 @@ def test_run_sync_is_idempotent_end_to_end(
 
     exact_events = (
         db.execute(
-            select(LedgerEvent).where(
-                LedgerEvent.source_record_id == by_record_id["rec-exact"].id
-            )
+            select(LedgerEvent).where(LedgerEvent.source_record_id == by_record_id["rec-exact"].id)
         )
         .scalars()
         .all()
@@ -477,3 +472,119 @@ def test_failed_run_reports_zero_created_rows(
         .where(SourceRecord.source_record_id == "rec-pre-crash"),
     )
     assert remaining == 0
+
+
+def test_resolve_property_hook_tried_first_with_ladder_fallback(
+    db: Session, run_session_factory: Callable[[], Session]
+) -> None:
+    """The resolve_property hook is consulted FIRST for every record; a None
+    return falls back to the standard matching ladder, and re-runs with the
+    hook active stay idempotent."""
+    prop_hook = _make_property(db, address_line1="12 Hook Plaza")
+    prop_ladder = _make_property(
+        db, address_line1="4501 Runner Oak Drive", hcad_account_id="TESTRUN100"
+    )
+    db.commit()
+
+    records: list[dict[str, Any]] = [
+        {
+            # No address and no HCAD account: the ladder alone could never
+            # place this record — only the hook can.
+            "id": "rec-hooked",
+            "events": [
+                {
+                    "event_type": "CODE_VIOLATION_RESOLVED",
+                    "event_date": "2026-06-01T00:00:00+00:00",
+                    "title": "Code violation case closed",
+                }
+            ],
+        },
+        {
+            "id": "rec-ladder",
+            "hcad": "TESTRUN100",
+            "address": "4501 RUNNER OAK DR",
+            "events": [
+                {
+                    "event_type": "PERMIT_ISSUED",
+                    "event_date": "2026-07-01T00:00:00+00:00",
+                    "title": "Permit issued",
+                }
+            ],
+        },
+    ]
+
+    hook_saw: list[str] = []
+
+    def hook(session: Session, rec: NormalizedRecord) -> MatchResult | None:
+        hook_saw.append(rec.source_record_id)
+        if rec.source_record_id == "rec-hooked":
+            return MatchResult(
+                property_id=prop_hook.id,
+                method=MatchMethod.MANUAL,
+                confidence=1.0,
+                reason="linked via upstream project key",
+                review_status=MatchReviewStatus.AUTO_ACCEPTED,
+            )
+        return None  # fall back to the standard ladder
+
+    run1 = run_sync(
+        InMemoryAdapter(records),
+        run_session_factory,
+        snapshot=_snapshot(),
+        resolve_property=hook,
+    )
+
+    assert run1.status == "SUCCEEDED"
+    assert hook_saw == ["rec-hooked", "rec-ladder"]  # tried first, for every record
+    assert run1.records_matched == 2
+    assert run1.records_unmatched == 0
+    assert run1.source_records_created == 2
+    assert run1.events_created == 2
+
+    by_record_id = {
+        sr.source_record_id: sr
+        for sr in db.execute(
+            select(SourceRecord).where(SourceRecord.source_name == SOURCE_NAME)
+        ).scalars()
+    }
+
+    # --- hook result used as-is: MANUAL match + event on the hook's property ---
+    hooked_match = db.execute(
+        select(RecordPropertyMatch).where(
+            RecordPropertyMatch.source_record_id == by_record_id["rec-hooked"].id
+        )
+    ).scalar_one()
+    assert hooked_match.property_id == prop_hook.id
+    assert hooked_match.match_method == MatchMethod.MANUAL
+    assert hooked_match.confidence == 1.0
+    assert hooked_match.review_status == MatchReviewStatus.AUTO_ACCEPTED
+    assert hooked_match.match_reason == "linked via upstream project key"
+    hooked_event = db.execute(
+        select(LedgerEvent).where(LedgerEvent.source_record_id == by_record_id["rec-hooked"].id)
+    ).scalar_one()
+    assert hooked_event.property_id == prop_hook.id
+
+    # --- hook returned None: the HCAD_ID ladder rung still fires ---
+    ladder_match = db.execute(
+        select(RecordPropertyMatch).where(
+            RecordPropertyMatch.source_record_id == by_record_id["rec-ladder"].id
+        )
+    ).scalar_one()
+    assert ladder_match.property_id == prop_ladder.id
+    assert ladder_match.match_method == MatchMethod.HCAD_ID
+    assert ladder_match.review_status == MatchReviewStatus.AUTO_ACCEPTED
+    ladder_event = db.execute(
+        select(LedgerEvent).where(LedgerEvent.source_record_id == by_record_id["rec-ladder"].id)
+    ).scalar_one()
+    assert ladder_event.property_id == prop_ladder.id
+
+    # --- idempotent with the hook active: a re-run creates nothing new ---
+    run2 = run_sync(
+        InMemoryAdapter(records),
+        run_session_factory,
+        snapshot=_snapshot(),
+        resolve_property=hook,
+    )
+    assert run2.status == "SUCCEEDED"
+    assert run2.source_records_created == 0
+    assert run2.events_created == 0

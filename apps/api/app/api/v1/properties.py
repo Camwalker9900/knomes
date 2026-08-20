@@ -112,6 +112,11 @@ def get_property(property_id: uuid.UUID, session: SessionDep) -> PropertyDetail:
         property_type=prop.property_type,
         latitude=prop.latitude,
         longitude=prop.longitude,
+        bedrooms=prop.bedrooms,
+        bathrooms_full=prop.bathrooms_full,
+        bathrooms_half=prop.bathrooms_half,
+        quality_code=prop.quality_code,
+        year_remodeled=prop.year_remodeled,
         condition_summary=condition_summary(session, property_id),
         freshness=freshness(session, property_id),
     )

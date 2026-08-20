@@ -154,6 +154,20 @@ describe("contract fixtures parse as the client types", () => {
     }
   });
 
+  it("property detail: building details are integers-or-null (quality is string-or-null)", () => {
+    for (const count of [
+      propertyDetail.bedrooms,
+      propertyDetail.bathrooms_full,
+      propertyDetail.bathrooms_half,
+      propertyDetail.year_remodeled,
+    ]) {
+      expect(count === null || Number.isInteger(count)).toBe(true);
+    }
+    expect(
+      propertyDetail.quality_code === null || typeof propertyDetail.quality_code === "string",
+    ).toBe(true);
+  });
+
   it("timeline: every event has a verification_level; system inference has confidence", () => {
     expect(timeline.events.length).toBeGreaterThan(0);
     for (const event of timeline.events) {

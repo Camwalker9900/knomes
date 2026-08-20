@@ -152,6 +152,11 @@ export interface PropertyDetail {
   property_type: string | null;
   latitude: number | null;
   longitude: number | null;
+  bedrooms: number | null;
+  bathrooms_full: number | null;
+  bathrooms_half: number | null;
+  quality_code: string | null;
+  year_remodeled: number | null;
   condition_summary: ConditionSummaryCounts;
   freshness: SourceFreshness[];
 }

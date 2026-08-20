@@ -1,0 +1,140 @@
+{
+  "success": true,
+  "result": {
+    "records": [
+      {
+        "_id": 1,
+        "NPPRJID": "340418",
+        "Sr_Request_Num": "101008880001",
+        "ViolationSubId": null,
+        "Action_Level": "Project",
+        "Action_Type": "Project Action",
+        "Action_Id": "PA900001",
+        "Action_Date": "2015-02-10",
+        "Action": "Send Violation Letter",
+        "Comments": null
+      },
+      {
+        "_id": 2,
+        "NPPRJID": "340418",
+        "Sr_Request_Num": "101008880001",
+        "ViolationSubId": "920001",
+        "Action_Level": "SubProject",
+        "Action_Type": "Violation Action",
+        "Action_Id": "PA900002",
+        "Action_Date": "2015-04-20",
+        "Action": "Reinspection",
+        "Comments": "MET OWNER JANE EXAMPLESON ON SITE_x000d_\nCB ON 5/1/2015"
+      },
+      {
+        "_id": 3,
+        "NPPRJID": "340418",
+        "Sr_Request_Num": "101008880001",
+        "ViolationSubId": null,
+        "Action_Level": "Project",
+        "Action_Type": "Project Action",
+        "Action_Id": "PA900003",
+        "Action_Date": "2015-06-30",
+        "Action": "Close File",
+        "Comments": "ABATED_x000d_\nFILE CLOSED PER CONVERSATION WITH JANE EXAMPLESON"
+      },
+      {
+        "_id": 4,
+        "NPPRJID": "999999",
+        "Sr_Request_Num": null,
+        "ViolationSubId": null,
+        "Action_Level": "Project",
+        "Action_Type": "Project Action",
+        "Action_Id": "PA900004",
+        "Action_Date": "2015-07-15",
+        "Action": "Close File",
+        "Comments": null
+      },
+      {
+        "_id": 5,
+        "NPPRJID": "340418",
+        "Sr_Request_Num": "101008880001",
+        "ViolationSubId": "920001",
+        "Action_Level": "SubProject",
+        "Action_Type": "Violation Action",
+        "Action_Id": "PA900005",
+        "Action_Date": "13/45/2015",
+        "Action": "Reinspection",
+        "Comments": null
+      },
+      {
+        "_id": 6,
+        "NPPRJID": "340418",
+        "Sr_Request_Num": "101008880001",
+        "ViolationSubId": null,
+        "Action_Level": "Project",
+        "Action_Type": "Project Action",
+        "Action_Id": null,
+        "Action_Date": "2015-05-05",
+        "Action": "",
+        "Comments": "CASE NOTE ONLY - SPOKE WITH TENANT JANE EXAMPLESON"
+      },
+      {
+        "_id": 7,
+        "NPPRJID": "888888",
+        "Sr_Request_Num": null,
+        "ViolationSubId": null,
+        "Action_Level": "Project",
+        "Action_Type": "Project Action",
+        "Action_Id": "PA900007",
+        "Action_Date": "2016-01-05",
+        "Action": "Send Violation Letter",
+        "Comments": null
+      },
+      {
+        "_id": 8,
+        "NPPRJID": "777777",
+        "Sr_Request_Num": null,
+        "ViolationSubId": null,
+        "Action_Level": "Project",
+        "Action_Type": "Project Action",
+        "Action_Id": "PA900008",
+        "Action_Date": "2016-02-02",
+        "Action": "Title Search",
+        "Comments": null
+      },
+      {
+        "_id": 9,
+        "NPPRJID": "666666",
+        "Sr_Request_Num": null,
+        "ViolationSubId": null,
+        "Action_Level": "Project",
+        "Action_Type": "Project Action",
+        "Action_Id": "PA900009",
+        "Action_Date": "2016-03-03",
+        "Action": "Post Notice",
+        "Comments": null
+      },
+      {
+        "_id": 10,
+        "NPPRJID": "555555",
+        "Sr_Request_Num": null,
+        "ViolationSubId": null,
+        "Action_Level": "Project",
+        "Action_Type": "Project Action",
+        "Action_Id": "PA900010",
+        "Action_Date": "2016-04-04",
+        "Action": "Close File",
+        "Comments": null
+      },
+      {
+        "_id": 11,
+        "NPPRJID": "340999",
+        "Sr_Request_Num": "101008880011",
+        "ViolationSubId": null,
+        "Action_Level": "Project",
+        "Action_Type": "Project Action",
+        "Action_Id": "PA900011",
+        "Action_Date": "2016-05-01",
+        "Action": "Send Violation Letter",
+        "Comments": null
+      }
+    ],
+    "total": 11
+  }
+}

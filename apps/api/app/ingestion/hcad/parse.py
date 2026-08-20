@@ -60,6 +60,8 @@ REQUIRED_COLUMNS: Final[tuple[str, ...]] = (
 # Optional columns consumed when the layout provides them. ``bld_ar`` is the
 # 2026 name for building area (older layouts: ``im_sq_ft``); the str_* extras
 # are directional/ordinal address parts present in the full HCAD export.
+# ``new_own_dt`` (MM/DD/YYYY, may be blank) is the date the CURRENT owner took
+# title — it drives OWNERSHIP_TRANSFER ledger events (see load.py).
 OPTIONAL_COLUMNS: Final[tuple[str, ...]] = (
     "im_sq_ft",
     "bld_ar",
@@ -67,6 +69,7 @@ OPTIONAL_COLUMNS: Final[tuple[str, ...]] = (
     "str_num_sfx",
     "str_sfx_dir",
     "tot_mkt_val",
+    "new_own_dt",
 )
 
 SNAPSHOT_ENCODING: Final[str] = "utf-8"

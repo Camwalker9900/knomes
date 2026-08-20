@@ -63,6 +63,14 @@ class Property(Base):
     building_sqft: Mapped[int | None] = mapped_column(Integer, nullable=True)
     lot_sqft: Mapped[float | None] = mapped_column(Float, nullable=True)
     property_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Building details from the HCAD Real_building_land import (migration 0002):
+    # room counts from fixtures.txt (RMB/RMF/RMH), quality/remodel year from
+    # building_res.txt (qa_cd/yr_remodel). Nullable — absence is never invented.
+    bedrooms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bathrooms_full: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bathrooms_half: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quality_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    year_remodeled: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -63,5 +63,10 @@ class PropertyDetail(BaseModel):
     property_type: str | None = None
     latitude: float | None = None
     longitude: float | None = None
+    bedrooms: int | None = None
+    bathrooms_full: int | None = None
+    bathrooms_half: int | None = None
+    quality_code: str | None = None
+    year_remodeled: int | None = None
     condition_summary: ConditionSummary
     freshness: list[FreshnessEntry]

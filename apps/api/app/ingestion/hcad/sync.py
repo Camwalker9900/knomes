@@ -7,11 +7,15 @@ Usage::
     python -m app.ingestion.hcad.sync --url URL     # explicit download URL
 
 Pipeline: build a checksummed :class:`RawSnapshot` -> archive the snapshot
-file under ``data/raw/hcad/<timestamp>_<checksum8>.txt`` -> COPY into the
-UNLOGGED ``hcad_staging`` table -> set-based property upsert keyed on
-``hcad_account_id`` (+ ``property_addresses`` aliases) -> per-row raw
-``source_records`` deduped on content_hash and linked to their properties.
-HCAD bootstraps properties; it emits **no** ledger events in this phase.
+file under ``data/raw/hcad/<timestamp>_<checksum8>.txt`` -> ONE streaming COPY
+pass into the UNLOGGED ``hcad_staging`` table (validated fields + canonical
+payload/content_hash + parsed ``new_own_dt``) -> set-based property upsert
+keyed on ``hcad_account_id`` (+ ``property_addresses`` aliases) -> bulk
+``source_records`` insert deduped on content_hash and linked to their
+properties -> set-based OWNERSHIP_TRANSFER ledger events from ``new_own_dt``
+(fixed public title, GOVERNMENT_RECORD provenance; deduped logically on
+(property, event_date) against ANY source, so a changed date on re-import is
+a new event and the old one is retained).
 
 Counter mapping onto ``SourceSyncRun`` fields (the model has no dedicated
 inserted/updated columns, so the pipeline's counts map as follows):
@@ -23,7 +27,10 @@ inserted/updated columns, so the pipeline's counts map as follows):
   maps to its property by hcad_account_id — the bootstrap "match")
 - ``records_unmatched``<- always 0 (the bootstrap creates missing properties)
 - ``source_records_created`` <- new raw source_records rows (content-hash dedup)
-- ``events_created``   <- always 0 (property bootstrap emits no ledger events)
+- ``events_created``   <- OWNERSHIP_TRANSFER events created from new_own_dt
+  (also logged as ``ownership_events_created``; blank/malformed dates create
+  no event, never reject the row, and are counted as
+  ``ownership_dates_blank`` / ``ownership_dates_invalid`` in the log line)
 
 The properties inserted/updated/unchanged split and the alias count appear in
 the structured log lines only.
@@ -52,14 +59,15 @@ from app.ingestion.hcad.download import (
     snapshot_from_file,
 )
 from app.ingestion.hcad.load import (
+    StageStats,
     UpsertStats,
     attach_source_record_properties,
+    create_ownership_events,
     insert_source_records,
     load_staging,
-    upsert_from_staging,
+    upsert_staged_properties,
 )
 from app.ingestion.hcad.normalize import HCAD_PARSER_VERSION, HCAD_SOURCE_NAME
-from app.ingestion.hcad.parse import ParseStats
 from app.ingestion.runner import (
     RUN_STATUS_FAILED,
     RUN_STATUS_RUNNING,
@@ -95,7 +103,7 @@ def run_hcad_sync(
     url: str | None = None,
     raw_dir: Path | None = None,
 ) -> SourceSyncRun:
-    """Run one full HCAD sync (staging COPY -> upsert -> aliases -> provenance).
+    """Run one full HCAD sync (staging COPY -> upsert -> aliases -> provenance -> events).
 
     Returns the persisted :class:`SourceSyncRun` metrics row. Pipeline errors
     mark the run FAILED with an ``error_message`` instead of raising; only
@@ -128,33 +136,39 @@ def run_hcad_sync(
         # Commit immediately so the run row survives a rollback on failure.
         session.commit()
 
-        parse_stats = ParseStats()
+        stage_stats = StageStats()
         upsert_stats = UpsertStats()
         source_records_created = 0
+        ownership_events_created = 0
         error: str | None = None
         try:
-            parse_stats = load_staging(session.connection(), snapshot.storage_path)
-            upsert_stats = upsert_from_staging(session)
+            stage_stats = load_staging(session.connection(), snapshot.storage_path)
+            upsert_stats = upsert_staged_properties(session)
             source_records_created = insert_source_records(session, snapshot)
             linked = attach_source_record_properties(session)
             logger.info(
                 "hcad source records linked",
                 extra={"source_name": HCAD_SOURCE_NAME, "records_linked": linked},
             )
+            ownership_events_created = create_ownership_events(session)
         except Exception as exc:
             session.rollback()
             error = f"{type(exc).__name__}: {exc}"
+            # Everything this run wrote was rolled back — the created counters
+            # must not claim rows that no longer exist.
+            source_records_created = 0
+            ownership_events_created = 0
             logger.exception(
                 "hcad sync failed",
                 extra={"source_name": HCAD_SOURCE_NAME, "run_id": str(run.id)},
             )
 
-        run.records_parsed = parse_stats.rows_read
-        run.records_rejected = parse_stats.rows_skipped + upsert_stats.rows_rejected
+        run.records_parsed = stage_stats.parse.rows_read
+        run.records_rejected = stage_stats.parse.rows_skipped + upsert_stats.rows_rejected
         run.records_matched = upsert_stats.rows_valid
         run.records_unmatched = 0
         run.source_records_created = source_records_created
-        run.events_created = 0
+        run.events_created = ownership_events_created
         run.snapshot_path = str(snapshot.storage_path)
         run.snapshot_checksum = snapshot.checksum
         run.source_url = snapshot.source_url
@@ -177,6 +191,9 @@ def run_hcad_sync(
                 "properties_updated": upsert_stats.properties_updated,
                 "properties_unchanged": upsert_stats.properties_unchanged,
                 "aliases_inserted": upsert_stats.aliases_inserted,
+                "ownership_events_created": ownership_events_created,
+                "ownership_dates_blank": stage_stats.ownership_dates_blank,
+                "ownership_dates_invalid": stage_stats.ownership_dates_invalid,
                 "snapshot_checksum": snapshot.checksum,
             },
         )
@@ -218,6 +235,7 @@ def main(argv: list[str] | None = None) -> int:
         f"hcad sync {run.status}: parsed={run.records_parsed}"
         f" matched={run.records_matched} rejected={run.records_rejected}"
         f" source_records_created={run.source_records_created}"
+        f" events_created={run.events_created}"
     )
     return 0 if run.status == RUN_STATUS_SUCCEEDED else 1
 

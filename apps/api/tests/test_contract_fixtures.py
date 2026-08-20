@@ -69,6 +69,16 @@ def test_fixtures_cover_required_contract_cases(payloads: dict[str, Any]) -> Non
     )
 
     detail = payloads["property_detail"]
+    building_details = {
+        "bedrooms",
+        "bathrooms_full",
+        "bathrooms_half",
+        "quality_code",
+        "year_remodeled",
+    }
+    assert building_details <= set(detail), (
+        "property_detail must carry the nullable building-details fields"
+    )
     assert set(detail["condition_summary"]) == {
         "open_findings",
         "resolved_findings",
